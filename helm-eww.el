@@ -84,10 +84,13 @@
 
 (defun helm-eww-buffers--display-buffer (buffer)
   (cond
-   ((get-buffer-window helm-current-buffer)
+   ((window-live-p (get-buffer-window helm-current-buffer))
     (setq helm-eww-buffers--buffer-window (get-buffer-window helm-current-buffer)))
    ((window-live-p helm-eww-buffers--buffer-window)
     nil)
+   ((eq major-mode 'eww-mode)
+    ;; If we are in eww-mode buffer
+    (setq helm-eww-buffers--buffer-window (selected-window)))
    (t
     ;; todo: split window
     (error "We have to split window!")))
@@ -109,7 +112,7 @@
            when (eq 'eww-mode (buffer-local-value 'major-mode buffer))
            collect (cons (with-current-buffer buffer
                            ;; need to put more information?
-                           (format "%s" (eww-current-title)))
+                           (format "%s: %s" (buffer-name buffer) (eww-current-title)))
                          buffer)
            into ret
            finally return (sort ret
@@ -121,7 +124,7 @@
 (defun helm-eww-buffers-get-preselection ()
   (cond
    ((eq major-mode 'eww-mode)
-    (eww-current-title))
+    (format "%s: %s" (buffer-name (current-buffer)) (eww-current-title)))
    (t
     nil)))
 
@@ -195,3 +198,10 @@
   (helm :sources 'helm-source-eww-history))
 
 (provide 'helm-eww)
+
+;; Local Variables:
+;; coding: utf-8
+;; indent-tabs-mode: nil
+;; End:
+
+;; helm-eww.el ends here
