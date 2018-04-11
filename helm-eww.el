@@ -24,12 +24,29 @@
 ;;; Commentary:
 
 ;; (define-key eww-mode-map (kbd "S") #'helm-eww-buffers-list-buffers)
+;; (define-key eww-mode-map (kbd "H") #'helm-eww-history)
 
 ;;; Code
 
 (require 'helm)
 (require 'cl-lib)
+(require 'eww)
 
+(defvar eww-data)
+(defun eww-current-title ()
+  (if (boundp 'eww-current-title)
+      ;; emacs24.4
+      eww-current-title
+    (plist-get eww-data :title)))
+
+(unless (fboundp 'eww-current-url)
+  (defun eww-current-url ()
+    (if (boundp 'eww-current-url)
+        ;; emacs24.4
+        eww-current-url
+      (plist-get eww-data :url))))
+
+;; eww buffers management
 (defvar helm-eww-buffers-map
   (let ((map (copy-keymap helm-map)))
     (define-key map (kbd "C-n") #'helm-eww-buffers-next-line)
@@ -68,7 +85,7 @@
   (set-window-buffer helm-eww-buffers--buffer-window buffer))
 
 (defvar helm-source-eww-buffers
-  (helm-build-sync-source "helm-eww-buffers"
+  (helm-build-sync-source "eww buffers"
     :candidates #'helm-eww-buffers-candidates
     :action #'helm-eww-buffers-select-buffer
     :migemo t
@@ -83,13 +100,13 @@
            when (eq 'eww-mode (buffer-local-value 'major-mode buffer))
            ;; todo: need to sort eww buffers in some order?
            collect (cons (with-current-buffer buffer
-                           (format "%s" (plist-get eww-data :title)))
+                           (format "%s" (eww-current-title)))
                          buffer)))
 
 (defun helm-eww-buffers-get-preselection ()
   (cond
-   ((derived-mode-p 'eww-mode)
-    (plist-get eww-data :title))
+   ((eq major-mode 'eww-mode)
+    (eww-current-title))
    (t
     nil)))
 
@@ -100,5 +117,43 @@
         ;; We will need to preselect a candidate if eww buffers are
         ;; sorted in some order.
         :preselect (helm-eww-buffers-get-preselection)))
+
+;; Thanks to eww history management by rubikitch at
+;; http://rubikitch.com/f/helm-eww.el.
+(defun helm-eww-history-candidates ()
+  (cl-loop with hash = (make-hash-table :test 'equal)
+           for b in (buffer-list)
+           when (eq (buffer-local-value 'major-mode b) 'eww-mode)
+           append (with-current-buffer b
+                    (clrhash hash)
+                    (puthash (eww-current-url) t hash)
+                    (cons
+                     (cons (format "%s (%s) <%s>" (eww-current-title) (eww-current-url) b) b)
+                     (cl-loop for pl in eww-history
+                              unless (gethash (plist-get pl :url) hash)
+                              collect
+                              (prog1 (cons (format "%s (%s) <%s>"
+                                                   (plist-get pl :title)
+                                                   (plist-get pl :url) b)
+                                           (cons b pl))
+                                (puthash (plist-get pl :url) t hash)))))))
+
+(defun helm-eww-history-browse (buf-hist)
+  (if (bufferp buf-hist)
+      (switch-to-buffer buf-hist)
+    (switch-to-buffer (car buf-hist))
+    (eww-save-history)
+    (eww-restore-history (cdr buf-hist))))
+
+(defvar helm-source-eww-history
+  (helm-build-sync-source "eww history"
+    :candidates #'helm-eww-history-candidates
+    :migemo t
+    :action  #'helm-eww-history-browse))
+
+;;;###autoload
+(defun helm-eww-history ()
+  (interactive)
+  (helm :sources 'helm-source-eww-history))
 
 (provide 'helm-eww)
