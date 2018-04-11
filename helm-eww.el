@@ -105,7 +105,7 @@
 
 (defun helm-eww-buffers-select-buffer (buffer)
   (unless (eq (current-buffer) buffer)
-    (set-window-buffer (selected-window) buffer)))
+    (switch-to-buffer buffer)))
 
 (defun helm-eww-buffers-candidates ()
   (cl-loop for buffer in (buffer-list)
@@ -124,22 +124,24 @@
 (defun helm-eww-buffers-get-preselection ()
   (cond
    ((eq major-mode 'eww-mode)
-    (format "%s: %s" (buffer-name (current-buffer)) (eww-current-title)))
+    (format "^%s: %s$"
+            (regexp-quote (buffer-name (current-buffer)))
+            (regexp-quote (eww-current-title))))
    (t
     nil)))
+
+(defun helm-eww--get-buffer-list ()
+  (sort (cl-remove-if-not (lambda (b) (eq 'eww-mode
+                                          (buffer-local-value 'major-mode b)))
+                          (buffer-list))
+        (lambda (a b)
+          (string< (buffer-name a) (buffer-name b)))))
 
 ;;;###autoload
 (defun helm-eww-buffers-list-buffers ()
   (interactive)
   (helm :sources helm-source-eww-buffers
         :preselect (helm-eww-buffers-get-preselection)))
-
-(defun eww--get-buffer-list ()
-  (sort (cl-remove-if-not (lambda (b) (eq 'eww-mode
-                                          (buffer-local-value 'major-mode b)))
-                          (buffer-list))
-        (lambda (a b)
-          (string< (buffer-name a) (buffer-name b)))))
 
 (defun eww-next-buffer ()
   (interactive)
@@ -152,39 +154,43 @@
     (eww--move-buffer -1)))
 
 (defun eww--move-buffer (delta)
-  (let* ((lst (eww--get-buffer-list))
+  (let* ((lst (helm-eww--get-buffer-list))
          (len (length lst))
          (pos (cl-position (current-buffer) lst))
          (next-pos (and pos (% (+ delta pos len) len)))
          (next-buf (nth next-pos lst)))
     (helm-eww-buffers--display-buffer next-buf)))
 
-;; Thanks to eww history management by rubikitch at
-;; http://rubikitch.com/f/helm-eww.el.
-(defun helm-eww-history-candidates ()
-  (cl-loop with hash = (make-hash-table :test 'equal)
-           for b in (buffer-list)
-           when (eq (buffer-local-value 'major-mode b) 'eww-mode)
-           append (with-current-buffer b
-                    (clrhash hash)
-                    (puthash (eww-current-url) t hash)
-                    (cons
-                     (cons (format "%s (%s) <%s>" (eww-current-title) (eww-current-url) b) b)
-                     (cl-loop for pl in eww-history
-                              unless (gethash (plist-get pl :url) hash)
-                              collect
-                              (prog1 (cons (format "%s (%s) <%s>"
-                                                   (plist-get pl :title)
-                                                   (plist-get pl :url) b)
-                                           (cons b pl))
-                                (puthash (plist-get pl :url) t hash)))))))
 
-(defun helm-eww-history-browse (buf-hist)
-  (if (bufferp buf-hist)
-      (switch-to-buffer buf-hist)
-    (switch-to-buffer (car buf-hist))
-    (eww-save-history)
-    (eww-restore-history (cdr buf-hist))))
+;; history management
+
+(defvar eww-current-buffer)
+
+(defun helm-eww-history-candidates ()
+  ;; code from `eww-list-histories' in eww.el
+  (let ((domain-length 0)
+        (title-length 0)
+        (histories (buffer-local-value 'eww-history helm-current-buffer))
+        url title format-string start)
+    (with-helm-current-buffer
+      (setq-local eww-current-buffer (current-buffer)))
+    (dolist (history histories)
+      (setq domain-length (max domain-length (length (plist-get history :url))))
+      (setq title-length (max title-length (length (plist-get history :title)))))
+    (setq format-string (format "%%-%ds %%-%ds" title-length domain-length))
+    (cl-loop for history in histories
+             collect (cons (format format-string
+                                   (plist-get history :title)
+                                   (plist-get history :url))
+                           history))))
+
+(defun helm-eww-history-browse (history)
+  ;; code from `eww-history-browse' in eww.el
+  (let ((buffer eww-current-buffer))
+    (quit-window)
+    (when buffer
+      (pop-to-buffer-same-window buffer))
+    (eww-restore-history history)))
 
 (defvar helm-source-eww-history
   (helm-build-sync-source "eww history"
@@ -195,7 +201,10 @@
 ;;;###autoload
 (defun helm-eww-history ()
   (interactive)
-  (helm :sources 'helm-source-eww-history))
+  (if (or (not (eq major-mode 'eww-mode))
+          (null eww-history))
+      (error "No eww-histories are defined")
+    (helm :sources 'helm-source-eww-history)))
 
 (provide 'helm-eww)
 
