@@ -3,7 +3,7 @@
 ;; Copyright (C) 2018 whitypig
 
 ;; Author: whitypig <whitypig@gmail.com>
-;; URL:
+;; URL: https://github.com/whitypig/helm-eww
 ;; Version: 0.01
 ;; Package-Requires: ((helm "") (cl-lib "") (eww "") (emacs ""))
 ;; Keywords: eww helm
@@ -25,6 +25,8 @@
 
 ;; (define-key eww-mode-map (kbd "S") #'helm-eww-buffers-list-buffers)
 ;; (define-key eww-mode-map (kbd "H") #'helm-eww-history)
+;; (define-key eww-mode-map (kbd "C-c C-n") #'eww-next-buffer)
+;; (define-key eww-mode-map (kbd "C-c C-p") #'eww-previous-buffer)
 
 ;;; Code
 
@@ -45,6 +47,13 @@
         ;; emacs24.4
         eww-current-url
       (plist-get eww-data :url))))
+
+(defun eww-new (url)
+  "Open a new page in a new eww buffer."
+  (interactive (list (read-from-minibuffer "Enter URL or keywords: ")))
+  (switch-to-buffer (generate-new-buffer "eww"))
+  (eww-mode)
+  (eww url))
 
 ;; eww buffers management
 (defvar helm-eww-buffers-map
@@ -98,10 +107,16 @@
 (defun helm-eww-buffers-candidates ()
   (cl-loop for buffer in (buffer-list)
            when (eq 'eww-mode (buffer-local-value 'major-mode buffer))
-           ;; todo: need to sort eww buffers in some order?
            collect (cons (with-current-buffer buffer
+                           ;; need to put more information?
                            (format "%s" (eww-current-title)))
-                         buffer)))
+                         buffer)
+           into ret
+           finally return (sort ret
+                                ;; sort by buffer name
+                                (lambda (a b)
+                                  (string< (buffer-name (cdr a))
+                                           (buffer-name (cdr b)))))))
 
 (defun helm-eww-buffers-get-preselection ()
   (cond
@@ -114,9 +129,32 @@
 (defun helm-eww-buffers-list-buffers ()
   (interactive)
   (helm :sources helm-source-eww-buffers
-        ;; We will need to preselect a candidate if eww buffers are
-        ;; sorted in some order.
         :preselect (helm-eww-buffers-get-preselection)))
+
+(defun eww--get-buffer-list ()
+  (sort (cl-remove-if-not (lambda (b) (eq 'eww-mode
+                                          (buffer-local-value 'major-mode b)))
+                          (buffer-list))
+        (lambda (a b)
+          (string< (buffer-name a) (buffer-name b)))))
+
+(defun eww-next-buffer ()
+  (interactive)
+  (when (eq major-mode 'eww-mode)
+    (eww--move-buffer 1)))
+
+(defun eww-previous-buffer ()
+  (interactive)
+  (when (eq major-mode 'eww-mode)
+    (eww--move-buffer -1)))
+
+(defun eww--move-buffer (delta)
+  (let* ((lst (eww--get-buffer-list))
+         (len (length lst))
+         (pos (cl-position (current-buffer) lst))
+         (next-pos (and pos (% (+ delta pos len) len)))
+         (next-buf (nth next-pos lst)))
+    (helm-eww-buffers--display-buffer next-buf)))
 
 ;; Thanks to eww history management by rubikitch at
 ;; http://rubikitch.com/f/helm-eww.el.
