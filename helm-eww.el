@@ -27,6 +27,10 @@
 ;; (define-key eww-mode-map (kbd "H") #'helm-eww-history)
 ;; (define-key eww-mode-map (kbd "C-c C-n") #'eww-next-buffer)
 ;; (define-key eww-mode-map (kbd "C-c C-p") #'eww-previous-buffer)
+;;
+
+;;; Todo:
+;; * Suport deletion of a history in helm-eww-history buffer.
 
 ;;; Code
 
@@ -166,6 +170,8 @@
 
 (defvar eww-current-buffer)
 
+(defvar helm-eww-history--current-history nil)
+
 (defun helm-eww-history-candidates ()
   ;; code from `eww-list-histories' in eww.el
   (let ((domain-length 0)
@@ -185,18 +191,49 @@
                            history))))
 
 (defun helm-eww-history-browse (history)
-  ;; code from `eww-history-browse' in eww.el
+  ;; Code from `eww-history-browse' in eww.el
   (let ((buffer eww-current-buffer))
     (quit-window)
     (when buffer
       (pop-to-buffer-same-window buffer))
-    (eww-restore-history history)))
+    (eww-save-history)
+    (eww-restore-history history)
+    ;; notify that a user chose some history
+    (setq-local helm-eww-history--current-history nil)))
+
+(defun helm-eww-history-next-line (&optional arg)
+  (interactive "p")
+  (let ((helm-move-to-line-cycle-in-source t))
+    (helm-next-line arg)
+    (helm-eww-history--move-line-action)))
+
+(defun helm-eww-history-previous-line (&optional arg)
+  (interactive "p")
+  (let ((helm-move-to-line-cycle-in-source t))
+    (helm-previous-line arg)
+    (helm-eww-history--move-line-action)))
+
+(defun helm-eww-history--move-line-action ()
+  "Temporarily display history under point in helm-window."
+  (with-helm-window
+    (let ((history (helm-get-selection))
+          (win (get-buffer-window helm-current-buffer)))
+      (when (window-live-p win)
+        (with-selected-window win
+          (eww-restore-history history))))))
+
+(defvar helm-eww-history-keymap
+  (let ((map (copy-keymap helm-map)))
+    (define-key map (kbd "C-n") #'helm-eww-history-next-line)
+    (define-key map (kbd "C-p") #'helm-eww-history-previous-line)
+    map))
 
 (defvar helm-source-eww-history
   (helm-build-sync-source "eww history"
     :candidates #'helm-eww-history-candidates
     :migemo t
-    :action  #'helm-eww-history-browse))
+    :action  #'helm-eww-history-browse
+    :keymap helm-eww-history-keymap))
 
 ;;;###autoload
 (defun helm-eww-history ()
@@ -204,7 +241,13 @@
   (if (or (not (eq major-mode 'eww-mode))
           (null eww-history))
       (error "No eww-histories are defined")
-    (helm :sources 'helm-source-eww-history)))
+    ;; Save current page
+    (setq-local helm-eww-history--current-history (car eww-history))
+    (unwind-protect
+        (helm :sources 'helm-source-eww-history)
+      (when helm-eww-history--current-history
+        ;; Non-nil means that a user didn't choose some history.
+        (eww-restore-history helm-eww-history--current-history)))))
 
 (provide 'helm-eww)
 
