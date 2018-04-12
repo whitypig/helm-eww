@@ -59,7 +59,9 @@
   (eww-mode)
   (eww url))
 
-;; eww buffers management
+
+;; eww buffer management
+
 (defvar helm-eww-buffers-map
   (let ((map (copy-keymap helm-map)))
     (define-key map (kbd "C-n") #'helm-eww-buffers-next-line)
@@ -183,19 +185,24 @@
       (setq title-length (max title-length (length (plist-get history :title)))))
     (setq format-string (format "%%-%ds %%-%ds" title-length domain-length))
     (cl-loop for history in histories
+             for ix from 0
              collect (cons (format format-string
                                    (plist-get history :title)
                                    (plist-get history :url))
-                           history))))
+                           ;; Let each candidate have its id so that
+                           ;; we can later use it to delete history.
+                           ;; value is cons cell (ix . history)
+                           (cons ix history)))))
 
-(defun helm-eww-history-browse (history)
+(defun helm-eww-history-browse (candidate)
   ;; Code from `eww-history-browse' in eww.el
   (let ((buffer eww-current-buffer))
     (quit-window)
     (when buffer
       (pop-to-buffer-same-window buffer))
     (eww-save-history)
-    (eww-restore-history history)))
+    ;; candidate is in the form of (ix . history)
+    (eww-restore-history (cdr candidate))))
 
 (defun helm-eww-history-next-line (&optional arg)
   (interactive "p")
@@ -212,7 +219,7 @@
 (defun helm-eww-history--move-line-action ()
   "Temporarily display history under point in helm-window."
   (with-helm-window
-    (let ((history (helm-get-selection))
+    (let ((history (cdr (helm-get-selection)))
           (win (get-buffer-window helm-current-buffer)))
       (when (window-live-p win)
         (with-selected-window win
@@ -230,13 +237,44 @@
       (eww-reload))
     (eww-update-header-line-format)))
 
-(defvar helm-eww-history-map
-  (let ((map (copy-keymap helm-map)))
+(defun helm-eww-history-delete-history (_history)
+  ;; _history is a history under the point and is also considered as
+  ;; a marked candidate.
+  ;; We cannot simply delete a history by comparing its value because
+  ;; there can be the same history entries in eww-history.
+  (let* ((delete-indices
+          ;; collect id of history to be deleted.
+          (cl-loop for candidate in (helm-marked-candidates)
+                   ;; #'helm-marked-candidates ALWAYS returns at least
+                   ;; #one candidate.
+                   collect (car candidate)))
+         ;; collect not-to-be-deleted histories.
+         (new-histories
+          (cl-loop for ix from 0
+                   for history in eww-history
+                   with lst = nil
+                   unless (memq ix delete-indices)
+                   collect history)))
+    (setq-local eww-history new-histories)
+    ;; then update helm buffer with new eww-history
+    (helm-force-update)))
+
+(defun helm-eww-history-run-delete-history-persistent ()
+  "Delete history without quitting helm."
+  (interactive)
+  (with-helm-alive-p
+    (helm-attrset 'kill-action '(helm-eww-history-delete-history . never-split))
+    (helm-execute-persistent-action 'kill-action)))
+
+(setq helm-eww-history-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map helm-map)
     (define-key map (kbd "C-n") #'helm-eww-history-next-line)
     (define-key map (kbd "C-p") #'helm-eww-history-previous-line)
+    (define-key map (kbd "C-c d") #'helm-eww-history-run-delete-history-persistent)
     map))
 
-(defvar helm-source-eww-history
+(setq helm-source-eww-history
   (helm-build-sync-source "eww history"
     :candidates #'helm-eww-history-candidates
     :migemo t
@@ -256,9 +294,9 @@
           (inhibit-read-only t)
           (inhibit-modification-hooks t))
       ;; Our strategy is that we first save curent text and position
-      ;; in text and pos. Then render the most recent history because,
-      ;; when calling helm, the first element in eww-history is
-      ;; selected.
+      ;; in variables text and pos. Then render the most recent
+      ;; history because, when calling helm, the first element in
+      ;; eww-history is selected.
       ;; When we get back from helm, either by
       ;; canceling or choosing a history, the content of the buffer
       ;; must be changed, so we restore the buffer content with
@@ -287,7 +325,7 @@
 (provide 'helm-eww)
 
 ;; Local Variables:
-;; coding: utf-8
+;; coding: utf-8-unix
 ;; indent-tabs-mode: nil
 ;; End:
 
