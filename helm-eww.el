@@ -170,8 +170,6 @@
 
 (defvar eww-current-buffer)
 
-(defvar helm-eww-history--current-history nil)
-
 (defun helm-eww-history-candidates ()
   ;; code from `eww-list-histories' in eww.el
   (let ((domain-length 0)
@@ -197,9 +195,7 @@
     (when buffer
       (pop-to-buffer-same-window buffer))
     (eww-save-history)
-    (eww-restore-history history)
-    ;; notify that a user chose some history
-    (setq-local helm-eww-history--current-history nil)))
+    (eww-restore-history history)))
 
 (defun helm-eww-history-next-line (&optional arg)
   (interactive "p")
@@ -220,9 +216,21 @@
           (win (get-buffer-window helm-current-buffer)))
       (when (window-live-p win)
         (with-selected-window win
-          (eww-restore-history history))))))
+          (helm-eww-history--restore-history history))))))
 
-(defvar helm-eww-history-keymap
+(defun helm-eww-history--restore-history (history)
+  (let ((inhibit-read-only t)
+        (inhibit-modification-hooks t)
+        (text (plist-get history :text))
+        (eww-data history))
+    (if text
+        (progn (erase-buffer)
+               (insert text)
+               (goto-char (plist-get history :point)))
+      (eww-reload))
+    (eww-update-header-line-format)))
+
+(defvar helm-eww-history-map
   (let ((map (copy-keymap helm-map)))
     (define-key map (kbd "C-n") #'helm-eww-history-next-line)
     (define-key map (kbd "C-p") #'helm-eww-history-previous-line)
@@ -232,8 +240,7 @@
   (helm-build-sync-source "eww history"
     :candidates #'helm-eww-history-candidates
     :migemo t
-    :action  #'helm-eww-history-browse
-    :keymap helm-eww-history-keymap))
+    :keymap helm-eww-history-map))
 
 ;;;###autoload
 (defun helm-eww-history ()
@@ -241,13 +248,41 @@
   (if (or (not (eq major-mode 'eww-mode))
           (null eww-history))
       (error "No eww-histories are defined")
-    ;; Save current page
-    (setq-local helm-eww-history--current-history (car eww-history))
-    (unwind-protect
-        (helm :sources 'helm-source-eww-history)
-      (when helm-eww-history--current-history
-        ;; Non-nil means that a user didn't choose some history.
-        (eww-restore-history helm-eww-history--current-history)))))
+    (let ((current-text (buffer-string))
+          (current-pos (point))
+          (prev-text (plist-get (car eww-history) :text))
+          (prev-pos (plist-get (car eww-history) :point))
+          (history nil)
+          (inhibit-read-only t)
+          (inhibit-modification-hooks t))
+      ;; Our strategy is that we first save curent text and position
+      ;; in text and pos. Then render the most recent history because,
+      ;; when calling helm, the first element in eww-history is
+      ;; selected.
+      ;; When we get back from helm, either by
+      ;; canceling or choosing a history, the content of the buffer
+      ;; must be changed, so we restore the buffer content with
+      ;; saved text and pos.
+      ;; If a user has selected some history, then save the current
+      ;; page into history by calling `eww-save-history' and restore
+      ;; the chosen history by calling `eww-restore-history.'
+      ;;
+      ;; insert the content of the most recent history
+      (erase-buffer)
+      (if prev-text
+          (insert prev-text)
+        (eww-reload))
+      (goto-char prev-pos)
+      ;; call helm
+      (setq history (helm :sources 'helm-source-eww-history))
+      ;; restore the original content
+      (erase-buffer)
+      (insert current-text)
+      (goto-char current-pos)
+      (when history
+        ;; restore the selected history
+        (eww-save-history)
+        (eww-restore-history history)))))
 
 (provide 'helm-eww)
 
