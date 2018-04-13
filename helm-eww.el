@@ -186,23 +186,14 @@
     (setq format-string (format "%%-%ds %%-%ds" title-length domain-length))
     (cl-loop for history in histories
              for ix from 0
-             collect (cons (format format-string
-                                   (plist-get history :title)
-                                   (plist-get history :url))
+             for title = (plist-get history :title)
+             for url = (plist-get history :url)
+             when (and title url)
+             collect (cons (format format-string title url)
                            ;; Let each candidate have its id so that
                            ;; we can later use it to delete history.
                            ;; value is cons cell (ix . history)
                            (cons ix history)))))
-
-(defun helm-eww-history-browse (candidate)
-  ;; Code from `eww-history-browse' in eww.el
-  (let ((buffer eww-current-buffer))
-    (quit-window)
-    (when buffer
-      (pop-to-buffer-same-window buffer))
-    (eww-save-history)
-    ;; candidate is in the form of (ix . history)
-    (eww-restore-history (cdr candidate))))
 
 (defun helm-eww-history-next-line (&optional arg)
   (interactive "p")
@@ -223,19 +214,25 @@
           (win (get-buffer-window helm-current-buffer)))
       (when (window-live-p win)
         (with-selected-window win
-          (helm-eww-history--restore-history history))))))
+          (helm-eww-history--display-history history))))))
 
-(defun helm-eww-history--restore-history (history)
+(defun helm-eww-history--display-history (history)
   (let ((inhibit-read-only t)
         (inhibit-modification-hooks t)
         (text (plist-get history :text))
-        (eww-data history))
-    (if text
-        (progn (erase-buffer)
-               (insert text)
-               (goto-char (plist-get history :point)))
-      (eww-reload))
-    (eww-update-header-line-format)))
+        (pos (plist-get history :point)))
+    (cond
+     (text
+      (erase-buffer)
+      (insert text))
+     (t
+      ;; Note: desktop.el may restore the previous state, so all the
+      ;; pages in history can be empty. In that case, should we reload
+      ;; the page? For now, we have decided to do nothing.
+      ;; (eww-reload)
+      nil
+      ))
+    (and (integerp pos) (goto-char pos))))
 
 (defun helm-eww-history-delete-history (_history)
   ;; _history is a history under the point and is also considered as
@@ -246,7 +243,7 @@
           ;; collect id of history to be deleted.
           (cl-loop for candidate in (helm-marked-candidates)
                    ;; #'helm-marked-candidates ALWAYS returns at least
-                   ;; #one candidate.
+                   ;; one candidate.
                    collect (car candidate)))
          ;; collect not-to-be-deleted histories.
          (new-histories
@@ -274,7 +271,7 @@
     (define-key map (kbd "C-c d") #'helm-eww-history-run-delete-history-persistent)
     map))
 
-(setq helm-source-eww-history
+(defvar helm-source-eww-history
   (helm-build-sync-source "eww history"
     :candidates #'helm-eww-history-candidates
     :migemo t
@@ -307,12 +304,11 @@
       ;;
       ;; insert the content of the most recent history
       (erase-buffer)
-      (if prev-text
-          (insert prev-text)
-        (eww-reload))
-      (goto-char prev-pos)
+      (when prev-text
+        (insert prev-text)
+        (and (integerp prev-pos) (goto-char prev-pos)))
       ;; call helm
-      (setq history (helm :sources 'helm-source-eww-history))
+      (setq history (cdr (helm :sources 'helm-source-eww-history)))
       ;; restore the original content
       (erase-buffer)
       (insert current-text)
