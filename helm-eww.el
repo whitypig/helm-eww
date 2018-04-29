@@ -318,6 +318,85 @@
         (eww-save-history)
         (eww-restore-history history)))))
 
+;; bookmark management
+
+(defcustom helm-eww-bookmark-bookmarks-filename "helm-eww-bookmarks"
+  ""
+  :type 'string
+  :group 'helm-eww)
+
+;; (
+;; (section1 . ((url1 title1) (url2 title2)))
+;; (section2 . ((url3 title3) (url4 title4)))
+;; )
+(defvar helm-eww-bookmark-bookmarks nil
+  "Alist of bookmarks managed by helm-eww, whose key is a section name
+  and its value is list of bookmarks. Each bookmark is represented by
+  (url title).")
+
+(defun helm-eww-bookmark-bookmark-current-url ()
+  "Bookmark current page."
+  (interactive)
+  (let* ((url (plist-get eww-data :url))
+         (section (and url (helm-eww-bookmark--get-section)))
+         (title (and section
+                     (> (length section) 0)
+                     (helm-eww-bookmark--get-title
+                      (replace-regexp-in-string "[\n\t\r]" " "
+                                                (plist-get eww-data :title))))))
+    (if (not (stringp url))
+        (error "No url found.")
+      (when (and (stringp section) (stringp title) (stringp url))
+        (helm-eww-bookmark--add-bookmark section url title)
+        (message "%s added in %s." title section)))))
+
+(defun helm-eww-bookmark--add-bookmark (section url title)
+  "Add url URL into section SECTION with title being TITLE."
+  (let ((lst (assoc section helm-eww-bookmark-bookmarks)))
+    (if lst
+        (setcdr (last lst) `((,url ,title)))
+      (push `(,section . ((,url ,title))) helm-eww-bookmark-bookmarks))))
+
+(defun helm-eww-bookmark--get-section-names ()
+  (mapcar #'car helm-eww-bookmark-bookmarks))
+
+(defvar helm-source-eww-bookmark-sections
+      (helm-build-sync-source "Helm-eww bookmark sections"
+        :candidates #'helm-eww-bookmark--get-section-names
+        :migemo t))
+
+(defvar helm-source-eww-bookmark-sections-not-found
+  (helm-build-dummy-source "Create new section"
+    :action (helm-make-actions
+             "Create new section"
+             (lambda (candidate)
+               ;; Todo: find out how to inhibit candidate from
+               ;; being the source name.
+               candidate))))
+
+(defun helm-eww-bookmark--get-section ()
+  "Let user choose section or input a new section name."
+  (helm :sources '(helm-source-eww-bookmark-sections
+                   helm-source-eww-bookmark-sections-not-found)))
+
+(defun helm-eww-bookmark--get-title (title)
+  ;; We intentionally use INITIAL-CONTENS to #'read-from-minibuffer
+  ;; because it would be convenient to edit and modify the original
+  ;; title of the actual page rather than to input from scratch.
+  (read-from-minibuffer "Title: " title))
+
+(defun helm-eww-bookmark--write-bookmarks-to-file ()
+  "Write `helm-eww-bookmark-bookmarks' to a file."
+  )
+
+(defun helm-eww-bookmark--read-bookmarks-from-file ()
+  "Read in bookmarks from file and set `helm-eww-bookmark-bookmarks'."
+  )
+
+(defun helm-eww-bookmark--get-bookmarks-in-section (section)
+  "Return list of bookmarks in section SECTION."
+  (assoc-default section helm-eww-bookmark-bookmarks))
+
 (provide 'helm-eww)
 
 ;; Local Variables:
