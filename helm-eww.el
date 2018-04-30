@@ -518,6 +518,21 @@
     (helm-eww-bookmark--write-bookmarks-to-file)
     (message "Deleted bookmark %s in %s" title section)))
 
+(defun helm-eww-bookmark--edit-bookmark-title (section url title)
+  "Edit title of bookmark identified by SECTION, URL and TITLE."
+  (let ((new-title (helm-eww-bookmark--read-title-from-minibuffer title)))
+    (if (string= new-title title)
+        (message "No need to change title!")
+      (progn
+        (setf
+         (elt (assoc-default section helm-eww-bookmark-bookmarks)
+              (cl-position `(,url ,title)
+                           (assoc-default section helm-eww-bookmark-bookmarks)
+                           :test #'equal))
+         `(,url ,new-title))
+        (helm-eww-bookmark--write-bookmarks-to-file)
+        (message "Title has changed to %s." new-title)))))
+
 (defun helm-eww-bookmark-bookmarks ()
   (interactive)
   (let ((val nil)
@@ -552,6 +567,7 @@
       ('edit
        ;; Edit title of this bookmark.
        (message "Editing title, bookmark=%s" (cons url title))
+       (helm-eww-bookmark--edit-bookmark-title section url title)
        )
       ('copy
        ;; Copy this bookmark to other section.
