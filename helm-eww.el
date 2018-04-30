@@ -563,13 +563,10 @@
        (and (stringp url) (eww-new url)))
       ('delete
        ;; Delete this bookmark.
-       (helm-eww-bookmark--delete-bookmark section url title)
-       )
+       (helm-eww-bookmark--delete-bookmark section url title))
       ('edit
        ;; Edit title of this bookmark.
-       (message "Editing title, bookmark=%s" (cons url title))
-       (helm-eww-bookmark--edit-bookmark-title section url title)
-       )
+       (helm-eww-bookmark--edit-bookmark-title section url title))
       ('copy
        ;; Copy this bookmark to other section.
        (message "Copying bookmark=%s" (cons url title))
