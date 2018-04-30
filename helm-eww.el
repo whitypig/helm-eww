@@ -537,7 +537,8 @@
   (interactive)
   (let ((val nil)
         (url nil)
-        (go 'go))
+        (section nil)
+        (title nil))
     ;; Value returned from #'helm-eww-bookmark-display-bookmarks is
     ;; one the following:
     ;; nil: when pressed C-g or something like that.
