@@ -334,42 +334,115 @@
   and its value is list of bookmarks. Each bookmark is represented by
   (url title).")
 
+(defclass heww-bookmark ()
+  ((url :initarg :url
+        :initform nil)
+   (title :initarg :title
+          :initform nil)
+   (date :initform (format-time-string "%Y%m%d%H%M")))
+  "Represents a bookmark.")
+
+(defmethod helm-eww-bookmark--bookmark-equal ((bm1 heww-bookmark) bm2)
+  (string= (slot-value bm1 :url) (slot-value bm2 :url)))
+
+(defclass heww-bookmark-section ()
+  ((name :initarg :name
+         :initform nil)
+   (bookmarks :initarg :bookmarks
+              :initform nil
+              :type list
+              :documentation "Bookmarks in this section.")
+   (date :initform (format-time-string "%Y%m%d%H%M")))
+  "Represents a section which holds multiple bookmarks of type
+`heww-bookmark'.")
+
+(defmethod helm-eww-bookmark--heww-add-bookmark ((section-obj heww-bookmark-section)
+                                                 bookmark)
+  (cond
+   ((null (slot-value section-obj :bookmarks))
+    (push bookmark (slot-value section-obj :bookmarks)))
+   ((cl-find-if (lambda (bm) (helm-eww-bookmark--bookmark-equal bm bookmark))
+                (slot-value section-obj :bookmarks))
+    (message "You already have bookmarked %s." (slot-value bookmark :url)))
+   (t
+    ;; Append bookmark
+    (object-add-to-list section-obj :bookmarks bookmark t))))
+
 (defun helm-eww-bookmark-bookmark-current-url ()
   "Bookmark current page."
   (interactive)
   (let* ((url (plist-get eww-data :url))
-         (section (and url (helm-eww-bookmark--get-section)))
-         (title (and section
-                     (> (length section) 0)
+         (section-obj (and url (helm-eww-bookmark--get-section)))
+         (title (and section-obj
+                     (> (length (slot-value section-obj :name)) 0)
                      (helm-eww-bookmark--read-title-from-minibuffer
                       (replace-regexp-in-string "[\n\t\r]" " "
                                                 (plist-get eww-data :title))))))
-    (if (not (stringp url))
-        (error "No url found.")
-      (when (and (stringp section) (stringp title) (stringp url))
-        (helm-eww-bookmark--add-bookmark section url title)
-        (helm-eww-bookmark--write-bookmarks-to-file)
-        (message "%s added in %s." title section)))))
+    (cond
+     ((not (stringp url))
+      (error "No url found."))
+     ((and (stringp title) (stringp url))
+      (helm-eww-bookmark--heww-add-bookmark section-obj
+                                            (heww-bookmark :url url :title title))
+      (helm-eww-bookmark--write-bookmarks-to-file)
+      (message "%s added in %s." title (slot-value section-obj :name))))))
+
+;; (defun helm-eww-bookmark-bookmark-current-url ()
+;;   "Bookmark current page."
+;;   (interactive)
+;;   (let* ((url (plist-get eww-data :url))
+;;          (section-obj (and url (helm-eww-bookmark--get-section)))
+;;          (title (and section-obj
+;;                      (> (length (slot-value section-obj :name)) 0)
+;;                      (helm-eww-bookmark--read-title-from-minibuffer
+;;                       (replace-regexp-in-string "[\n\t\r]" " "
+;;                                                 (plist-get eww-data :title))))))
+;;     (cond
+;;      ((not (stringp url))
+;;       (error "No url found."))
+;;      ((and (stringp title) (stringp url))
+;;       (helm-eww-bookmark--heww-add-bookmark section-obj
+;;                                             (heww-bookmark :url url :title title))
+;;       (helm-eww-bookmark--add-bookmark section url title)
+;;       (helm-eww-bookmark--write-bookmarks-to-file)
+;;       (message "%s added in %s." title section)))))
 
 (defun helm-eww-bookmark--add-bookmark (section url title)
-  "Add url URL into section SECTION with title being TITLE."
-  (let ((lst (assoc section helm-eww-bookmark-bookmarks)))
-    (cond
-     ((null helm-eww-bookmark-bookmarks)
-      (setq helm-eww-bookmark-bookmarks
-            `((,section . ((,url ,title))))))
-     (lst
-      (setcdr (last lst) `((,url ,title))))
-     (t
-      ;; Create and append SECTION.
-      (add-to-list 'helm-eww-bookmark-bookmarks `(,section . ((,url ,title))) t)))))
+  "Create and add bookmark whose url is URL and title TITLE into
+section SECTION-OBJ."
+  (let ((section-obj (or (cl-find-if (lambda (obj)
+                                       (string= (slot-value obj :name) section))
+                                     helm-eww-bookmark-bookmarks)
+                         (progn
+                           (add-to-list 'helm-eww-bookmark-bookmarks
+                                        (heww-bookmark-section :name section)
+                                        t)
+                           (car (last helm-eww-bookmark-bookmarks))))))
+    (helm-eww-bookmark--heww-add-bookmark section-obj
+                                          (heww-bookmark :url url :title title))))
 
-(defun helm-eww-bookmark--get-section-names ()
-  (mapcar #'car helm-eww-bookmark-bookmarks))
+;; (defun helm-eww-bookmark--add-bookmark (section url title)
+;;   "Add url URL into section SECTION with title being TITLE."
+;;   (let ((lst (assoc section helm-eww-bookmark-bookmarks)))
+;;     (cond
+;;      ((null helm-eww-bookmark-bookmarks)
+;;       (setq helm-eww-bookmark-bookmarks
+;;             `((,section . ((,url ,title))))))
+;;      (lst
+;;       (setcdr (last lst) `((,url ,title))))
+;;      (t
+;;       ;; Create and append SECTION.
+;;       (add-to-list 'helm-eww-bookmark-bookmarks `(,section . ((,url ,title))) t)))))
 
-(defvar helm-source-eww-bookmark-sections
+;; (defun helm-eww-bookmark--get-section-names ()
+;;   (mapcar (lambda (obj)
+;;             (cons (slot-value obj :name)
+;;                   (obj)))
+;;           helm-eww-bookmark-bookmarks))
+
+(setq helm-source-eww-bookmark-sections
       (helm-build-sync-source "Helm-eww bookmark sections"
-        :candidates #'helm-eww-bookmark--get-section-names
+        :candidates #'helm-eww-bookmark--build-section-candidates
         :migemo t))
 
 (defvar helm-source-eww-bookmark-sections-not-found
@@ -379,7 +452,11 @@
              (lambda (candidate)
                ;; Todo: find out how to inhibit candidate from
                ;; being the source name.
-               candidate))))
+               ;; Create and add new section whose name is candidate.
+               (add-to-list 'helm-eww-bookmark-bookmarks
+                            (heww-bookmark-section :name candidate)
+                            t)
+               (car (last helm-eww-bookmark-bookmarks))))))
 
 (defun helm-eww-bookmark--get-section ()
   "Let user choose section or input a new section name."
@@ -410,22 +487,28 @@
                   (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
                   (buffer-string))))))
 
-(defun helm-eww-bookmark--get-bookmarks-in-section (section)
-  "Return list of bookmarks in section SECTION."
-  (assoc-default section helm-eww-bookmark-bookmarks))
+;; (defun helm-eww-bookmark--get-bookmarks-in-section (section)
+;;   "Return list of bookmarks in section SECTION."
+;;   (slot-value (cl-find-if (lambda (obj) (string= (slot-value obj :name) section))
+;;                           helm-eww-bookmark-bookmarks)
+;;               :bookmarks))
 
 (defun helm-eww-bookmark--get-all-bookmark-candidates ()
-  (cl-mapcan (lambda (lst)
-               (mapcar (lambda (bookmark)
-                         ;; bookmark is (url title)
-                         (cons (elt bookmark 1) (elt bookmark 0)))
-                       (cdr lst)))
-             helm-eww-bookmark-bookmarks))
+  (mapcar (lambda (bm-obj)
+            ;; Display is title and real is bookmark object.
+            (cons (slot-value bm-obj :title)
+                  bm-obj))
+          (cl-mapcan (lambda (section-obj)
+                       (copy-sequence (slot-value section-obj :bookmarks)))
+                     helm-eww-bookmark-bookmarks)))
 
 (defun helm-eww-bookmark--build-section-candidates ()
-  (helm-eww-bookmark--get-section-names))
+  (mapcar (lambda (obj)
+            ;; Display is section name and real is section object.
+            (cons (slot-value obj :name) obj))
+          helm-eww-bookmark-bookmarks))
 
-(setq helm-eww-bookmark--actions-in-section
+(defvar helm-eww-bookmark--actions-in-section
   (helm-make-actions
    "Default" (lambda (candidate) (cons t candidate))
    "Back to top" #'helm-eww-bookmark--go-back-to-section
@@ -438,18 +521,18 @@
 (defun helm-eww-bookmark--go-back-to-section (candidate)
   (cons 'back candidate))
 
-(defun helm-eww-bookmark--build-in-section-source (section)
-  (helm-build-sync-source (format "Bookmarks in %s" section)
-    :candidates (helm-eww-bookmark--get-candidates-in-section section)
+(defun helm-eww-bookmark--build-in-section-source (section-obj)
+  (helm-build-sync-source (format "Bookmarks in %s"
+                                  (slot-value section-obj :name))
+    :candidates (helm-eww-bookmark--get-candidates-in-section section-obj)
     :action 'helm-eww-bookmark--actions-in-section
     :migemo t))
 
-(defun helm-eww-bookmark--get-candidates-in-section (section)
-  (cl-loop for bookmark in (assoc-default section helm-eww-bookmark-bookmarks)
-           for url = (elt bookmark 0)
-           for title = (elt bookmark 1)
-           ;; Display is title, and real is (url . section)
-           collect (cons title (cons url section))))
+(defun helm-eww-bookmark--get-candidates-in-section (section-obj)
+  (cl-loop for bookmark in (slot-value section-obj :bookmarks)
+           for title = (slot-value bookmark :title)
+           ;; Display is title, and real is (bookmark-obj . section-obj)
+           collect (cons title (cons bookmark section-obj))))
 
 (defvar helm-source-eww-bookmarks
   (helm-build-sync-source "Helm eww bookmark sections"
@@ -466,7 +549,7 @@
   (cons 'new candidate))
 
 (defun helm-eww-bookmark-delete-bookmark-action (candidate)
-  (cons 'kill candidate))
+  (cons 'delete candidate))
 
 (defun helm-eww-bookmark-edit-bookmark-title-action (candidate)
   (cons 'edit candidate))
@@ -477,68 +560,93 @@
 (defun helm-eww-bookmark-move-bookmark-to-other-section-action (candidate)
   (cons 'move candidate))
 
-(defun helm-eww-bookmark--select-bookmark-in-section (section)
+(defun helm-eww-bookmark--select-bookmark-in-section (section-obj)
   "Do helm with candidates being bookmarks in section SECTION."
   (interactive)
-  (helm :sources (helm-eww-bookmark--build-in-section-source section)))
+  (helm :sources (helm-eww-bookmark--build-in-section-source section-obj)))
 
 (defun helm-eww-bookmark-display-bookmarks (&optional prev-section)
   ""
-  (let ((section (helm :sources '(helm-source-eww-bookmarks
-                                  helm-source-eww-all-bookmarks)
-                       :preselect prev-section)))
-    (and (stringp section)
-         (helm-eww-bookmark--select-bookmark-in-section section))))
+  (let ((val (helm :sources '(helm-source-eww-bookmarks
+                              helm-source-eww-all-bookmarks)
+                   :preselect prev-section)))
+    (and (heww-bookmark-section-p val)
+         (helm-eww-bookmark--select-bookmark-in-section val))))
 
 (defun helm-eww-bookmark--get-url-from-candidate (candidate)
   "Return url in CANDIDIDATE."
   (car candidate))
 
 (defun helm-eww-bookmark--get-section-from-candidate (candidate)
-  "Return section in CANDIDATE."
-  (and (consp candidate) (cdr candidate)))
+  "Return section in CANDIDATE, which is of type `heww-bookmark-section'."
+  (and (heww-bookmark-section-p candidate)
+       (slot-value candidate :name)))
 
 (defun helm-eww-bookmark--get-title (section url)
   (car (assoc-default
         url
         (assoc-default section helm-eww-bookmark-bookmarks))))
 
-(defun helm-eww-bookmark--delete-bookmark (section url title)
-  "Delete bookmark in SECTION."
+(defun helm-eww-bookmark--delete-bookmark (section-obj bm-obj)
+  "Delete bookmark BM-OBJ in section SECTION-OBJ."
   ;; We assume that there is only one entry in SECTION whose url is
   ;; equal to URL.
-  (when (y-or-n-p (format "Delete %s in %s? " title section))
-    (setf (elt helm-eww-bookmark-bookmarks
-               (cl-position section helm-eww-bookmark-bookmarks
-                            :test #'equal
-                            :key #'car))
-          (cl-remove `(,url ,title)
-                     (assoc section helm-eww-bookmark-bookmarks)
-                     :test #'equal))
-    (helm-eww-bookmark--write-bookmarks-to-file)
-    (message "Deleted bookmark %s in %s" title section)))
+  (let ((title (slot-value bm-obj :title))
+        (section (slot-value section-obj :name)))
+    (when (y-or-n-p (format "Delete %s in %s? " title section))
+      (setf (slot-value section-obj :bookmarks)
+            (delete bm-obj (slot-value section-obj :bookmarks)))
+      (helm-eww-bookmark--write-bookmarks-to-file)
+      (message "Deleted bookmark %s in %s" title section))))
 
-(defun helm-eww-bookmark--edit-bookmark-title (section url title)
-  "Edit title of bookmark identified by SECTION, URL and TITLE."
-  (let ((new-title (helm-eww-bookmark--read-title-from-minibuffer title)))
+;; (defun helm-eww-bookmark--delete-bookmark (section url title)
+;;   "Delete bookmark in SECTION."
+;;   ;; We assume that there is only one entry in SECTION whose url is
+;;   ;; equal to URL.
+;;   (when (y-or-n-p (format "Delete %s in %s? " title section))
+;;     (setf (elt helm-eww-bookmark-bookmarks
+;;                (cl-position section helm-eww-bookmark-bookmarks
+;;                             :test #'equal
+;;                             :key #'car))
+;;           (cl-remove `(,url ,title)
+;;                      (assoc section helm-eww-bookmark-bookmarks)
+;;                      :test #'equal))
+;;     (helm-eww-bookmark--write-bookmarks-to-file)
+;;     (message "Deleted bookmark %s in %s" title section)))
+
+(defun helm-eww-bookmark--edit-bookmark-title (bm-obj)
+  "Edit the title of bookmark."
+  (let* ((title (slot-value bm-obj :title))
+         (new-title (helm-eww-bookmark--read-title-from-minibuffer title)))
     (if (string= new-title title)
         (message "No need to change title!")
       (progn
-        (setf
-         (elt (assoc-default section helm-eww-bookmark-bookmarks)
-              (cl-position `(,url ,title)
-                           (assoc-default section helm-eww-bookmark-bookmarks)
-                           :test #'equal))
-         `(,url ,new-title))
+        (setf (slot-value bm-obj :title) new-title)
         (helm-eww-bookmark--write-bookmarks-to-file)
         (message "Title has changed to %s." new-title)))))
+
+;; (defun helm-eww-bookmark--edit-bookmark-title (section url title)
+;;   "Edit title of bookmark identified by SECTION, URL and TITLE."
+;;   (let ((new-title (helm-eww-bookmark--read-title-from-minibuffer title)))
+;;     (if (string= new-title title)
+;;         (message "No need to change title!")
+;;       (progn
+;;         (setf
+;;          (elt (assoc-default section helm-eww-bookmark-bookmarks)
+;;               (cl-position `(,url ,title)
+;;                            (assoc-default section helm-eww-bookmark-bookmarks)
+;;                            :test #'equal))
+;;          `(,url ,new-title))
+;;         (helm-eww-bookmark--write-bookmarks-to-file)
+;;         (message "Title has changed to %s." new-title)))))
 
 (defun helm-eww-bookmark-bookmarks ()
   (interactive)
   (let ((val nil)
         (url nil)
         (section nil)
-        (title nil))
+        (title nil)
+        (cell nil))
     ;; Value returned from #'helm-eww-bookmark-display-bookmarks is
     ;; one the following:
     ;; nil: when pressed C-g or something like that.
@@ -551,33 +659,33 @@
                            (helm-eww-bookmark--get-section-from-candidate (cdr val))))))
       ;; pass
       )
-    (setq url (helm-eww-bookmark--get-url-from-candidate (cdr val)))
-    (setq section (helm-eww-bookmark--get-section-from-candidate (cdr val)))
-    (setq title (helm-eww-bookmark--get-title section url))
-    (cl-case (car val)
-      ((t)
-       ;; Visit url.
-       (and (stringp url) (eww url)))
-      ('new
-       ;; Visit url in new buffer.
-       (and (stringp url) (eww-new url)))
-      ('delete
-       ;; Delete this bookmark.
-       (helm-eww-bookmark--delete-bookmark section url title))
-      ('edit
-       ;; Edit title of this bookmark.
-       (helm-eww-bookmark--edit-bookmark-title section url title))
-      ('copy
-       ;; Copy this bookmark to other section.
-       (message "Copying bookmark=%s" (cons url title))
-       )
-      ('move
-       ;; Move this bookmark to other section.
-       (message "Moving bookmark=%s" (cons url title))
-       )
-      (t
-       ;; Otherwise, do nothing.
-       nil))))
+    (setq bm-obj (cadr val))
+    (setq section-obj (cddr val))
+    (when (and (heww-bookmark-p bm-obj) (heww-bookmark-section-p section-obj))
+      (cl-case (car val)
+        ((t)
+         ;; Visit url.
+         (eww (slot-value bm-obj :url)))
+        ('new
+         ;; Visit url in new buffer.
+         (eww-new (slot-value bm-obj :url)))
+        ('delete
+         ;; Delete this bookmark.
+         (helm-eww-bookmark--delete-bookmark section-obj bm-obj))
+        ('edit
+         ;; Edit title of this bookmark.
+         (helm-eww-bookmark--edit-bookmark-title bm-obj))
+        ('copy
+         ;; Copy this bookmark to other section.
+         (message "Copying bookmark=%s" (slot-value bm-obj :title))
+         )
+        ('move
+         ;; Move this bookmark to other section.
+         (message "Moving bookmark=%s" (slot-value bm-obj :title))
+         )
+        (t
+         ;; Otherwise, do nothing.
+         nil)))))
 
 (provide 'helm-eww)
 
