@@ -325,14 +325,9 @@
   :type 'string
   :group 'helm-eww)
 
-;; (
-;; (section1 . ((url1 title1) (url2 title2)))
-;; (section2 . ((url3 title3) (url4 title4)))
-;; )
 (defvar helm-eww-bookmark-bookmarks nil
-  "Alist of bookmarks managed by helm-eww, whose key is a section name
-  and its value is list of bookmarks. Each bookmark is represented by
-  (url title).")
+  "List of section of type `heww-bookmark-section'. Each section has
+its own list of bookmarks of type `heww-bookmark'.")
 
 (defclass heww-bookmark ()
   ((url :initarg :url
@@ -402,18 +397,62 @@ section SECTION-OBJ."
     (helm-eww-bookmark--heww-add-bookmark section-obj
                                           (heww-bookmark :url url :title title))))
 
-
 (defvar helm-eww-bookmark-sections-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c C-e") #'helm-eww-bookmark-persistent-edit-section)
-    map))
+    map)
+  "Keymap used in `helm-source-eww-bookmark-sections'.")
+
+(defvar helm-eww-bookmark-in-section-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-b") #'helm-eww-bookmark--run-go-back-to-section-action)
+    (define-key map (kbd "C-c C-e") #'helm-eww-bookmark--persistent-edit)
+    (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete)
+    (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
+    map)
+  "Keymap used in source returned by `helm-eww-bookmark--build-in-section-source'.")
+
+(defvar helm-eww-bookmark--no-bookmarks-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-b") #'helm-eww-bookmark--run-go-back-to-section-action)
+    map)
+  "Keymap used when there is no bookmarks in a section.")
+
+(defvar helm-eww-bookmark-all-bookmarks-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
+    map)
+  "Keymap used in `helm-source-eww-all-bookmarks'.")
 
 (defvar helm-source-eww-bookmark-sections
   (helm-build-sync-source "Helm eww bookmark sections"
     :candidates #'helm-eww-bookmark--build-section-candidates
     :volatile t
     :keymap helm-eww-bookmark-sections-map
-    :migemo t))
+    :migemo t)
+  "A helm source for selecting a section.")
+
+(defvar helm-source-eww-bookmark-sections-not-found
+  (helm-build-dummy-source "Create new section"
+    :action (helm-make-actions
+             "Create new section"
+             (lambda (candidate)
+               ;; Todo: find out how to inhibit candidate from
+               ;; being the source name.
+               ;; Create and add new section whose name is candidate.
+               (add-to-list 'helm-eww-bookmark-bookmarks
+                            (heww-bookmark-section :name candidate)
+                            t)
+               (car (last helm-eww-bookmark-bookmarks)))))
+  "A helm source for creating a new section.")
+
+(defvar helm-source-eww-all-bookmarks
+  (helm-build-sync-source "Helm eww all bookmarks"
+    :candidates #'helm-eww-bookmark--get-all-bookmark-candidates
+    :action (lambda (candidate) (cons t candidate))
+    :keymap helm-eww-bookmark-all-bookmarks-map
+    :migemo t)
+  "A helm source listing all of bookmarks in `helm-eww-bookmark-bookmarks'.")
 
 (defun helm-eww-bookmark-persistent-edit-section ()
   "Edit the name of section."
@@ -449,29 +488,10 @@ section SECTION-OBJ."
         (setf (slot-value section-obj :name) new-name)
         (message "Section name has changed to %s" new-name)))))
 
-(defvar helm-source-eww-bookmark-sections-not-found
-  (helm-build-dummy-source "Create new section"
-    :action (helm-make-actions
-             "Create new section"
-             (lambda (candidate)
-               ;; Todo: find out how to inhibit candidate from
-               ;; being the source name.
-               ;; Create and add new section whose name is candidate.
-               (add-to-list 'helm-eww-bookmark-bookmarks
-                            (heww-bookmark-section :name candidate)
-                            t)
-               (car (last helm-eww-bookmark-bookmarks))))))
-
 (defun helm-eww-bookmark--get-section ()
   "Let user choose section or input a new section name."
   (helm :sources '(helm-source-eww-bookmark-sections
                    helm-source-eww-bookmark-sections-not-found)))
-
-;; (defun helm-eww-bookmark--read-title-from-minibuffer (title)
-;;   ;; We intentionally use INITIAL-CONTENS to #'read-from-minibuffer
-;;   ;; because it would be convenient to edit and modify the original
-;;   ;; title of the actual page rather than to input from scratch.
-;;   (read-from-minibuffer "Title: " title))
 
 (defun helm-eww-bookmark--get-bookmark-filepath ()
   "Use `eww-bookmarks-directory' defined in eww.el."
@@ -492,6 +512,9 @@ section SECTION-OBJ."
                   (buffer-string))))))
 
 (defun helm-eww-bookmark--get-all-bookmark-candidates ()
+  "Return candidates of all bookmarks in
+`helm-eww-bookmark-bookmarks'. Display value is title and real value
+is of the form (heww-bookmark . nil)."
   (mapcar (lambda (bm-obj)
             ;; Display is title and real is (bookmark object . nil).
             (cons (slot-value bm-obj :title)
@@ -501,6 +524,8 @@ section SECTION-OBJ."
                      helm-eww-bookmark-bookmarks)))
 
 (defun helm-eww-bookmark--build-section-candidates ()
+  "Return section candidates. Display value is name of section and
+real value is heww-bookmark-section object."
   (mapcar (lambda (obj)
             ;; Display is section name and real is section object.
             (cons (slot-value obj :name) obj))
@@ -514,18 +539,13 @@ section SECTION-OBJ."
    "Delete bookmark" #'helm-eww-bookmark-delete-bookmark-action
    "Edit bookmark" #'helm-eww-bookmark-edit-bookmark-title-action
    "Copy to other section" #'helm-eww-bookmark-copy-bookmark-to-other-section-action
-   "Move to other section" #'helm-eww-bookmark-move-bookmark-to-other-section-action))
+   "Move to other section" #'helm-eww-bookmark-move-bookmark-to-other-section-action)
+  "Actions used in a source returned by
+`helm-eww-bookmark--build-in-section-source'.")
 
 (defun helm-eww-bookmark--go-back-to-section (candidate)
+  "An action to go back to the list of sections."
   (cons 'back candidate))
-
-(defvar helm-eww-bookmark-in-section-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-b") #'helm-eww-bookmark--run-go-back-to-section-action)
-    (define-key map (kbd "C-c C-e") #'helm-eww-bookmark--persistent-edit)
-    (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete)
-    (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
-    map))
 
 (defun helm-eww-bookmark--run-go-back-to-section-action ()
   "Go back to the list of sections."
@@ -579,22 +599,13 @@ section SECTION-OBJ."
     :migemo t))
 
 (defun helm-eww-bookmark--get-candidates-in-section (section-obj)
+  "Return candidates for bookmarks in section SECTION-OBJ. Display
+value is bookmark title and real value is (`heww-bookmark'
+. `heww-bookmark-section')."
   (cl-loop for bookmark in (slot-value section-obj :bookmarks)
            ;; Display is title, and real is (bookmark-obj . section-obj)
            collect (cons (slot-value bookmark :title)
                          (cons bookmark section-obj))))
-
-(defvar helm-eww-bookmark-all-bookmarks-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
-    map))
-
-(defvar helm-source-eww-all-bookmarks
-  (helm-build-sync-source "Helm eww all bookmarks"
-    :candidates #'helm-eww-bookmark--get-all-bookmark-candidates
-    :action (lambda (candidate) (cons t candidate))
-    :keymap helm-eww-bookmark-all-bookmarks-map
-    :migemo t))
 
 (defun helm-eww-bookmark-open-bookmark-in-new-buffer-action (candidate)
   (cons 'new candidate))
@@ -612,23 +623,23 @@ section SECTION-OBJ."
   (cons 'move candidate))
 
 (defun helm-eww-bookmark--do-helm-in-section (section-obj)
-  "Do helm with candidates being bookmarks in section SECTION."
+  "Do helm with candidates for bookmarks in section SECTION-OBJ."
   (interactive)
   (helm :sources `(,(helm-eww-bookmark--build-in-section-source section-obj)
+                   ;; We need another source created by
+                   ;; #'helm-eww-bookmark--build-no-bookmarks-source
+                   ;; so that we can go back to the list of sections
+                   ;; when there is no bookmarks in a section.
                    ,(helm-eww-bookmark--build-no-bookmarks-source section-obj))))
 
-(defvar helm-eww-bookmark--no-bookmarks-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-b") #'helm-eww-bookmark--run-go-back-to-section-action)
-    map))
-
 (defun helm-eww-bookmark--build-no-bookmarks-source (section-obj)
+  ;; We cannot get back to the list of sections if we use dummy
+  ;; source.
   (helm-build-sync-source "No bookmarks here."
     :keymap 'helm-eww-bookmark--no-bookmarks-map
     :candidates `(,(cons "Go back to sections" (cons nil section-obj)))))
 
 (defun helm-eww-bookmark-do-helm (&optional prev-section)
-  ""
   (let ((val (helm :sources '(helm-source-eww-bookmark-sections
                               helm-source-eww-all-bookmarks)
                    :preselect prev-section)))
@@ -674,6 +685,7 @@ section SECTION-OBJ."
         (message "Changes have been saved.")))))
 
 (defun helm-eww-bookmark-bookmarks ()
+  "Display helm eww bookmarks with the help of `helm'."
   (interactive)
   (let ((val nil))
     ;; Value returned from #'helm-eww-bookmark-do-helm is
@@ -706,11 +718,13 @@ section SECTION-OBJ."
          (helm-eww-bookmark--edit-bookmark bm-obj))
         ('copy
          ;; Copy this bookmark to other section.
-         (message "Copying bookmark=%s" (slot-value bm-obj :title))
+         ;; Not implemented.
+         ;; (message "Copying bookmark=%s" (slot-value bm-obj :title))
          )
         ('move
          ;; Move this bookmark to other section.
-         (message "Moving bookmark=%s" (slot-value bm-obj :title))
+         ;; Not implemented.
+         ;; (message "Moving bookmark=%s" (slot-value bm-obj :title))
          )
         (t
          ;; Otherwise, do nothing.
