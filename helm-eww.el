@@ -375,7 +375,8 @@
          (section-obj (and url (helm-eww-bookmark--get-section)))
          (title (and section-obj
                      (> (length (slot-value section-obj :name)) 0)
-                     (helm-eww-bookmark--read-title-from-minibuffer
+                     (helm-eww-bookmark--read-from-minibuffer
+                      "Title: "
                       (replace-regexp-in-string "[\n\t\r]" " "
                                                 (plist-get eww-data :title))))))
     (cond
@@ -401,10 +402,52 @@ section SECTION-OBJ."
     (helm-eww-bookmark--heww-add-bookmark section-obj
                                           (heww-bookmark :url url :title title))))
 
+
+(defvar helm-eww-bookmark-sections-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-e") #'helm-eww-bookmark-persistent-edit-section)
+    map))
+
 (defvar helm-source-eww-bookmark-sections
-  (helm-build-sync-source "Helm-eww bookmark sections"
+  (helm-build-sync-source "Helm eww bookmark sections"
     :candidates #'helm-eww-bookmark--build-section-candidates
+    :volatile t
+    :keymap helm-eww-bookmark-sections-map
     :migemo t))
+
+(defun helm-eww-bookmark-persistent-edit-section ()
+  "Edit the name of section."
+  (interactive)
+  (with-helm-alive-p
+    (helm-attrset 'edit-section
+                  '(helm-eww-bookmark--run-persistent-edit-section . never-split))
+    (helm-execute-persistent-action 'edit-section)
+    (helm-update)))
+
+(defun helm-eww-bookmark--run-persistent-edit-section (candidate)
+  (helm-eww-bookmark--edit-section candidate))
+
+(defun helm-eww-bookmark--read-from-minibuffer (prompt initial)
+  (let ((ret nil)
+        (ok nil))
+    (while (not ok)
+      (if (zerop (length (setq ret (read-from-minibuffer prompt initial))))
+          ;; We intentionally use INITIAL-CONTENS to
+          ;; #'read-from-minibuffer because it would be much easier to
+          ;; edit the current one rather than to input from scratch.
+          (and (message "Empty string is not allowed.")
+               (sit-for 1))
+        (setq ok t)))
+    ret))
+
+(defun helm-eww-bookmark--edit-section (section-obj)
+  (let* ((name (slot-value section-obj :name))
+         (new-name (helm-eww-bookmark--read-from-minibuffer "Section name: " name)))
+    (if (string= name new-name)
+        (message "No need to change.")
+      (progn
+        (setf (slot-value section-obj :name) new-name)
+        (message "Section name has changed to %s" new-name)))))
 
 (defvar helm-source-eww-bookmark-sections-not-found
   (helm-build-dummy-source "Create new section"
@@ -424,11 +467,11 @@ section SECTION-OBJ."
   (helm :sources '(helm-source-eww-bookmark-sections
                    helm-source-eww-bookmark-sections-not-found)))
 
-(defun helm-eww-bookmark--read-title-from-minibuffer (title)
-  ;; We intentionally use INITIAL-CONTENS to #'read-from-minibuffer
-  ;; because it would be convenient to edit and modify the original
-  ;; title of the actual page rather than to input from scratch.
-  (read-from-minibuffer "Title: " title))
+;; (defun helm-eww-bookmark--read-title-from-minibuffer (title)
+;;   ;; We intentionally use INITIAL-CONTENS to #'read-from-minibuffer
+;;   ;; because it would be convenient to edit and modify the original
+;;   ;; title of the actual page rather than to input from scratch.
+;;   (read-from-minibuffer "Title: " title))
 
 (defun helm-eww-bookmark--get-bookmark-filepath ()
   "Use `eww-bookmarks-directory' defined in eww.el."
@@ -450,9 +493,9 @@ section SECTION-OBJ."
 
 (defun helm-eww-bookmark--get-all-bookmark-candidates ()
   (mapcar (lambda (bm-obj)
-            ;; Display is title and real is bookmark object.
+            ;; Display is title and real is (bookmark object . nil).
             (cons (slot-value bm-obj :title)
-                  bm-obj))
+                  (cons bm-obj nil)))
           (cl-mapcan (lambda (section-obj)
                        (copy-sequence (slot-value section-obj :bookmarks)))
                      helm-eww-bookmark-bookmarks)))
@@ -481,6 +524,7 @@ section SECTION-OBJ."
     (define-key map (kbd "C-c C-b") #'helm-eww-bookmark--run-go-back-to-section-action)
     (define-key map (kbd "C-c C-e") #'helm-eww-bookmark--persistent-edit)
     (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete)
+    (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
     map))
 
 (defun helm-eww-bookmark--run-go-back-to-section-action ()
@@ -488,6 +532,12 @@ section SECTION-OBJ."
   (interactive)
   (with-helm-alive-p
     (helm-exit-and-execute-action 'helm-eww-bookmark--go-back-to-section)))
+
+(defun helm-eww-bookmark--run-open-in-new-buffer ()
+  "Open bookmark in a new eww buffer."
+  (interactive)
+  (with-helm-alive-p
+    (helm-exit-and-execute-action 'helm-eww-bookmark-open-bookmark-in-new-buffer-action)))
 
 (defun helm-eww-bookmark--persistent-edit ()
   "Edit currently-selected bookmark."
@@ -499,7 +549,6 @@ section SECTION-OBJ."
 (defun helm-eww-bookmark--run-persistent-edit (candidate)
   ;; candidate is (bookmark-obj . section-obj)
   (helm-eww-bookmark--edit-bookmark (car candidate))
-  ;; (helm-eww-bookmark--init-candidates-in-section (cdr candidate))
   (helm-update))
 
 (defun helm-eww-bookmark--persistent-delete ()
@@ -517,24 +566,6 @@ section SECTION-OBJ."
            for section-obj = (cdr candidate)
            do (helm-eww-bookmark--delete-bookmark section-obj bm-obj)
            finally (helm-update)))
-           ;; finally (progn
-           ;;           (helm-eww-bookmark--init-candidates-in-section section-obj)
-           ;;           (helm-force-update))
-           ;; ))
-
-;; (defvar helm-eww-bookmark--in-section-candidates nil
-;;   "Used as the value of candidate slot in
-;; `helm-eww-bookmark--build-in-section-source' to keep bookmark
-;; candidates up-to-date.")
-
-;; (defun helm-eww-bookmark--init-candidates-in-section (section-obj)
-;;   "Update variable `helm-eww-bookmark--in-section-candidates', which
-;; will be used as candidates slot in function
-;; `helm-eww-bookmark--build-in-section-source'."
-;;   (setq helm-eww-bookmark--in-section-candidates
-;;         (cl-loop for bm-obj in (slot-value section-obj :bookmarks)
-;;                  for title = (slot-value bm-obj :title)
-;;                  collect (cons title (cons bm-obj section-obj)))))
 
 (defun helm-eww-bookmark--build-in-section-source (section-obj)
   "Build helm source with bookmarks in section SECTION-OBJ."
@@ -553,10 +584,16 @@ section SECTION-OBJ."
            collect (cons (slot-value bookmark :title)
                          (cons bookmark section-obj))))
 
+(defvar helm-eww-bookmark-all-bookmarks-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
+    map))
+
 (defvar helm-source-eww-all-bookmarks
   (helm-build-sync-source "Helm eww all bookmarks"
     :candidates #'helm-eww-bookmark--get-all-bookmark-candidates
-    :action #'eww
+    :action (lambda (candidate) (cons t candidate))
+    :keymap helm-eww-bookmark-all-bookmarks-map
     :migemo t))
 
 (defun helm-eww-bookmark-open-bookmark-in-new-buffer-action (candidate)
@@ -574,18 +611,32 @@ section SECTION-OBJ."
 (defun helm-eww-bookmark-move-bookmark-to-other-section-action (candidate)
   (cons 'move candidate))
 
-(defun helm-eww-bookmark--select-bookmark-in-section (section-obj)
+(defun helm-eww-bookmark--do-helm-in-section (section-obj)
   "Do helm with candidates being bookmarks in section SECTION."
   (interactive)
-  (helm :sources (helm-eww-bookmark--build-in-section-source section-obj)))
+  (helm :sources `(,(helm-eww-bookmark--build-in-section-source section-obj)
+                   ,(helm-eww-bookmark--build-no-bookmarks-source section-obj))))
 
-(defun helm-eww-bookmark-display-bookmarks (&optional prev-section)
+(defvar helm-eww-bookmark--no-bookmarks-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-c C-b") #'helm-eww-bookmark--run-go-back-to-section-action)
+    map))
+
+(defun helm-eww-bookmark--build-no-bookmarks-source (section-obj)
+  (helm-build-sync-source "No bookmarks here."
+    :keymap 'helm-eww-bookmark--no-bookmarks-map
+    :candidates `(,(cons "Go back to sections" (cons nil section-obj)))))
+
+(defun helm-eww-bookmark-do-helm (&optional prev-section)
   ""
   (let ((val (helm :sources '(helm-source-eww-bookmark-sections
                               helm-source-eww-all-bookmarks)
                    :preselect prev-section)))
-    (and (heww-bookmark-section-p val)
-         (helm-eww-bookmark--select-bookmark-in-section val))))
+    (cond
+     ((heww-bookmark-section-p val)
+      (helm-eww-bookmark--do-helm-in-section val))
+     (t
+      val))))
 
 (defun helm-eww-bookmark--get-url-from-candidate (candidate)
   "Return url in CANDIDIDATE."
@@ -611,9 +662,9 @@ section SECTION-OBJ."
 (defun helm-eww-bookmark--edit-bookmark (bm-obj)
   "Edit bookmark."
   (let* ((title (slot-value bm-obj :title))
-         (new-title (helm-eww-bookmark--read-title-from-minibuffer title))
+         (new-title (helm-eww-bookmark--read-from-minibuffer "Title: " title))
          (url (slot-value bm-obj :url))
-         (new-url (helm-eww-bookmark--read-title-from-minibuffer url)))
+         (new-url (helm-eww-bookmark--read-from-minibuffer "URL: " url)))
     (if (and (string= new-title title) (string= url new-url))
         (message "No need to change title!")
       (progn
@@ -624,23 +675,22 @@ section SECTION-OBJ."
 
 (defun helm-eww-bookmark-bookmarks ()
   (interactive)
-  (let ((val nil)
-        (url nil)
-        (section nil)
-        (title nil)
-        (cell nil))
-    ;; Value returned from #'helm-eww-bookmark-display-bookmarks is
-    ;; (action . candidate) and candidate is either section object or
-    ;; bookmark object.
-    (while (eq 'back
-               (car (setq val
-                          (helm-eww-bookmark-display-bookmarks
-                           (helm-eww-bookmark--get-section-from-candidate (cdr val))))))
+  (let ((val nil))
+    ;; Value returned from #'helm-eww-bookmark-do-helm is
+    ;; (action-sign . candidate) and candidate is also a cons cell of
+    ;; the form (bookmark-object . section-object) or nil when
+    ;; returning from dummy source.
+    (while (eq
+            'back
+            (car
+             (setq val
+                   (helm-eww-bookmark-do-helm
+                    (helm-eww-bookmark--get-section-from-candidate (cddr val))))))
       ;; pass
       )
     (setq bm-obj (cadr val))
     (setq section-obj (cddr val))
-    (when (and (heww-bookmark-p bm-obj) (heww-bookmark-section-p section-obj))
+    (when (heww-bookmark-p bm-obj)
       (cl-case (car val)
         ((t)
          ;; Visit url.
