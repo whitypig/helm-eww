@@ -325,7 +325,7 @@
   :type 'string
   :group 'helm-eww)
 
-(defvar helm-eww-bookmark-bookmarks nil
+(defvar helm-eww-bookmark-bookmarks (helm-eww-bookmark--read-bookmarks-from-file)
   "List of section of type `heww-bookmark-section'. Each section has
 its own list of bookmarks of type `heww-bookmark'.")
 
@@ -684,6 +684,7 @@ value is bookmark title and real value is (`heww-bookmark'
         (helm-eww-bookmark--write-bookmarks-to-file)
         (message "Changes have been saved.")))))
 
+;;;###autoload
 (defun helm-eww-bookmark-bookmarks ()
   "Display helm eww bookmarks with the help of `helm'."
   (interactive)
@@ -729,6 +730,13 @@ value is bookmark title and real value is (`heww-bookmark'
         (t
          ;; Otherwise, do nothing.
          nil)))))
+
+(defun helm-eww-bookmark--setup-dev ()
+  "Debugging purpose."
+  (interactive)
+  (shell-command (format "cp %s %s.orig"
+                         (helm-eww-bookmark--get-bookmark-filepath)
+                         (helm-eww-bookmark--get-bookmark-filepath))))
 
 (provide 'helm-eww)
 
