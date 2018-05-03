@@ -637,7 +637,9 @@ value is bookmark title and real value is (`heww-bookmark'
   ;; source.
   (helm-build-sync-source "No bookmarks here."
     :keymap 'helm-eww-bookmark--no-bookmarks-map
-    :candidates `(,(cons "Go back to sections" (cons nil section-obj)))))
+    :candidates `(,(cons "Go back to sections" (cons 'back
+                                                     (cons nil
+                                                           section-obj))))))
 
 (defun helm-eww-bookmark-do-helm (&optional prev-section)
   (let ((val (helm :sources '(helm-source-eww-bookmark-sections
