@@ -25,12 +25,11 @@
 
 ;; (define-key eww-mode-map (kbd "S") #'helm-eww-buffers-list-buffers)
 ;; (define-key eww-mode-map (kbd "H") #'helm-eww-history)
+;; (define-key eww-mode-map (kbd "B") #'helm-eww-bookmark-bookmarks)
+;; (define-key eww-mode-map (kbd "a") #'helm-eww-bookmark-bookmark-current-url)
 ;; (define-key eww-mode-map (kbd "C-c C-n") #'eww-next-buffer)
 ;; (define-key eww-mode-map (kbd "C-c C-p") #'eww-previous-buffer)
 ;;
-
-;;; Todo:
-;; * Suport deletion of a history in helm-eww-history buffer.
 
 ;;; Code
 
