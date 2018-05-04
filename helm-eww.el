@@ -325,7 +325,7 @@
   :type 'string
   :group 'helm-eww)
 
-(defvar helm-eww-bookmark-bookmarks (helm-eww-bookmark--read-bookmarks-from-file)
+(defvar helm-eww-bookmark-bookmarks nil
   "List of section of type `heww-bookmark-section'. Each section has
 its own list of bookmarks of type `heww-bookmark'.")
 
@@ -366,6 +366,7 @@ its own list of bookmarks of type `heww-bookmark'.")
 (defun helm-eww-bookmark-bookmark-current-url ()
   "Bookmark current page."
   (interactive)
+  (helm-eww-bookmark--restore-bookmarks-maybe)
   (let* ((url (plist-get eww-data :url))
          (section-obj (and url (helm-eww-bookmark--get-section)))
          (title (and section-obj
@@ -686,10 +687,16 @@ value is bookmark title and real value is (`heww-bookmark'
         (helm-eww-bookmark--write-bookmarks-to-file)
         (message "Changes have been saved.")))))
 
+(defun helm-eww-bookmark--restore-bookmarks-maybe ()
+  "Restore `helm-eww-bookmark-bookmarks' if not set yet."
+  (unless helm-eww-bookmark-bookmarks
+    (helm-eww-bookmark--read-bookmarks-from-file)))
+
 ;;;###autoload
 (defun helm-eww-bookmark-bookmarks ()
   "Display helm eww bookmarks with the help of `helm'."
   (interactive)
+  (helm-eww-bookmark--restore-bookmarks-maybe)
   (let ((val nil))
     ;; Value returned from #'helm-eww-bookmark-do-helm is
     ;; (action-sign . candidate) and candidate is also a cons cell of
