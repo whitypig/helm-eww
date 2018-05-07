@@ -65,6 +65,7 @@
   (let ((map (copy-keymap helm-map)))
     (define-key map (kbd "C-n") #'helm-eww-buffers-next-line)
     (define-key map (kbd "C-p") #'helm-eww-buffers-previous-line)
+    (define-key helm-map (kbd "C-c d") #'helm-eww-buffers--run-persistent-kill-buffers)
     ;; need to override other moving keybinds such as C-v, M-v?
     map))
 
@@ -101,10 +102,27 @@
     (error "We have to split window!")))
   (set-window-buffer helm-eww-buffers--buffer-window buffer))
 
+(defun helm-eww-buffers--run-persistent-kill-buffers ()
+  (interactive)
+  (with-helm-alive-p
+    (helm-attrset 'kill '(helm-eww-buffers--kill-buffers . never-split))
+    (helm-execute-persistent-action 'kill)
+    (helm-update)))
+
+(defun helm-eww-buffers--kill-buffers (_candidate)
+  (let ((buffers (helm-marked-candidates)))
+    (when (y-or-n-p (format "Kill the following buffer(s)?: %s"
+                            (mapconcat (lambda (b)
+                                         (format "\"%s\"" (buffer-name b)))
+                                       buffers
+                                       ", ")))
+      (mapc #'kill-buffer buffers))))
+
 (defvar helm-source-eww-buffers
   (helm-build-sync-source "eww buffers"
     :candidates #'helm-eww-buffers-candidates
     :action #'helm-eww-buffers-select-buffer
+    :volatile t
     :migemo t
     :keymap helm-eww-buffers-map))
 
@@ -533,11 +551,11 @@ real value is heww-bookmark-section object."
 
 (defvar helm-eww-bookmark--actions-in-section
   (helm-make-actions
-   "Default" (lambda (candidate) (cons t candidate))
+   "Default" (lambda (candidate) (cons t (list candidate)))
    "Back to top" #'helm-eww-bookmark--go-back-to-section
    "Open bookmark in new buffer" #'helm-eww-bookmark-open-bookmark-in-new-buffer-action
    "Delete bookmark" #'helm-eww-bookmark-delete-bookmark-action
-   "Edit bookmark" #'helm-eww-bookmark-edit-bookmark-title-action
+   "Edit bookmark" #'helm-eww-bookmark-edit-bookmark-action
    "Copy to other section" #'helm-eww-bookmark-copy-bookmark-to-other-section-action
    "Move to other section" #'helm-eww-bookmark-move-bookmark-to-other-section-action)
   "Actions used in a source returned by
@@ -545,7 +563,7 @@ real value is heww-bookmark-section object."
 
 (defun helm-eww-bookmark--go-back-to-section (candidate)
   "An action to go back to the list of sections."
-  (cons 'back candidate))
+  (cons 'back (list candidate)))
 
 (defun helm-eww-bookmark--run-go-back-to-section-action ()
   "Go back to the list of sections."
@@ -568,7 +586,7 @@ real value is heww-bookmark-section object."
 
 (defun helm-eww-bookmark--run-persistent-edit (candidate)
   ;; candidate is (bookmark-obj . section-obj)
-  (helm-eww-bookmark--edit-bookmark (car candidate))
+  (helm-eww-bookmark--edit-bookmark (car candidate) (cdr candidate))
   (helm-update))
 
 (defun helm-eww-bookmark--persistent-delete ()
@@ -584,7 +602,7 @@ real value is heww-bookmark-section object."
            ;; Note: section-obj stays same across this loop because delete
            ;; action is called for bookmarks in a section.
            for section-obj = (cdr candidate)
-           do (helm-eww-bookmark--delete-bookmark section-obj bm-obj)
+           do (helm-eww-bookmark--delete-bookmark bm-obj section-obj)
            finally (helm-update)))
 
 (defun helm-eww-bookmark--build-in-section-source (section-obj)
@@ -607,20 +625,20 @@ value is bookmark title and real value is (`heww-bookmark'
            collect (cons (slot-value bookmark :title)
                          (cons bookmark section-obj))))
 
-(defun helm-eww-bookmark-open-bookmark-in-new-buffer-action (candidate)
-  (cons 'new candidate))
+(defun helm-eww-bookmark-open-bookmark-in-new-buffer-action (_candidate)
+  (cons 'new (helm-marked-candidates)))
 
 (defun helm-eww-bookmark-delete-bookmark-action (candidate)
-  (cons 'delete candidate))
+  (cons 'delete (helm-marked-candidates)))
 
-(defun helm-eww-bookmark-edit-bookmark-title-action (candidate)
-  (cons 'edit candidate))
+(defun helm-eww-bookmark-edit-bookmark-action (candidate)
+  (cons 'edit (list candidate)))
 
 (defun helm-eww-bookmark-copy-bookmark-to-other-section-action (candidate)
-  (cons 'copy candidate))
+  (cons 'copy (list candidate)))
 
 (defun helm-eww-bookmark-move-bookmark-to-other-section-action (candidate)
-  (cons 'move candidate))
+  (cons 'move (list candidate)))
 
 (defun helm-eww-bookmark--do-helm-in-section (section-obj)
   "Do helm with candidates for bookmarks in section SECTION-OBJ."
@@ -638,8 +656,8 @@ value is bookmark title and real value is (`heww-bookmark'
   (helm-build-sync-source "No bookmarks here."
     :keymap 'helm-eww-bookmark--no-bookmarks-map
     :candidates `(,(cons "Go back to sections" (cons 'back
-                                                     (cons nil
-                                                           section-obj))))))
+                                                     `(,(cons nil
+                                                              section-obj)))))))
 
 (defun helm-eww-bookmark-do-helm (&optional prev-section)
   (let ((val (helm :sources '(helm-source-eww-bookmark-sections
@@ -660,7 +678,10 @@ value is bookmark title and real value is (`heww-bookmark'
   (and (heww-bookmark-section-p candidate)
        (slot-value candidate :name)))
 
-(defun helm-eww-bookmark--delete-bookmark (section-obj bm-obj)
+(defun helm-eww-new (bm-obj section-obj)
+  (eww-new (slot-value bm-obj :url)))
+
+(defun helm-eww-bookmark--delete-bookmark (bm-obj section-obj)
   "Delete bookmark BM-OBJ in section SECTION-OBJ."
   ;; We assume that there is only one entry in SECTION whose url is
   ;; equal to URL.
@@ -672,7 +693,7 @@ value is bookmark title and real value is (`heww-bookmark'
       (helm-eww-bookmark--write-bookmarks-to-file)
       (message "Deleted bookmark %s in %s" title section))))
 
-(defun helm-eww-bookmark--edit-bookmark (bm-obj)
+(defun helm-eww-bookmark--edit-bookmark (bm-obj _section-obj)
   "Edit bookmark."
   (let* ((title (slot-value bm-obj :title))
          (new-title (helm-eww-bookmark--read-from-minibuffer "Title: " title))
@@ -691,40 +712,62 @@ value is bookmark title and real value is (`heww-bookmark'
   (unless helm-eww-bookmark-bookmarks
     (helm-eww-bookmark--read-bookmarks-from-file)))
 
+(defun helm-eww-bookmark--do-action-on-list (lst func)
+  "Call function FUNC passing each element in list LST as
+arguments.Each element is of the form (heww-bookmark
+. heww-bookmark-section)."
+  (cl-loop for cell in lst
+           for bm-obj = (car cell)
+           for section-obj = (cdr cell)
+           do (funcall func bm-obj section-obj)))
+
 ;;;###autoload
 (defun helm-eww-bookmark-bookmarks ()
   "Display helm eww bookmarks with the help of `helm'."
   (interactive)
   (helm-eww-bookmark--restore-bookmarks-maybe)
-  (let ((val nil))
+  (let ((val nil)
+        (lst nil))
     ;; Value returned from #'helm-eww-bookmark-do-helm is
-    ;; (action-sign . candidate) and candidate is also a cons cell of
-    ;; the form (bookmark-object . section-object) or nil when
-    ;; returning from dummy source.
+    ;; (action-sign . candidates) and candidates is a list of the
+    ;; form ((bm-obj1 . section-obj1) (bm-obj2 . section-obj2)) or nil
+    ;; when returning from dummy source.
     (while (eq
             'back
             (car
              (setq val
                    (helm-eww-bookmark-do-helm
-                    (helm-eww-bookmark--get-section-from-candidate (cddr val))))))
+                    (helm-eww-bookmark--get-section-from-candidate
+                     ;; val is ('kind . ((bm-obj . section-obj) (bm-obj . section-obj))).
+                     ;; (cdr val) is ((bm-obj . section-obj) (bm-obj . section-obj)).
+                     ;; (cadr val) is (bm-obj . section-obj).
+                     ;; (cdadr val) is section-obj.
+                     (cdadr val))))))
       ;; pass
       )
-    (setq bm-obj (cadr val))
-    (setq section-obj (cddr val))
+    (setq lst (cdr val))
+    (setq bm-obj (caar lst))
+    (setq section-obj (cdar lst))
     (when (heww-bookmark-p bm-obj)
       (cl-case (car val)
         ((t)
          ;; Visit url.
+         ;; Even if lst contains more than one element, visiting
+         ;; multiple URLs in one buffer doesn't make any sense, at
+         ;; least to me. So we assume that the first element in lst
+         ;; is the bookmark that the user wants to visit.
          (eww (slot-value bm-obj :url)))
         ('new
          ;; Visit url in new buffer.
-         (eww-new (slot-value bm-obj :url)))
+         (helm-eww-bookmark--do-action-on-list lst #'helm-eww-new))
         ('delete
          ;; Delete this bookmark.
-         (helm-eww-bookmark--delete-bookmark section-obj bm-obj))
+         (helm-eww-bookmark--do-action-on-list lst #'helm-eww-bookmark--delete-bookmark)
+         ;; (helm-eww-bookmark--delete-bookmark section-obj bm-obj)
+         )
         ('edit
          ;; Edit this bookmark.
-         (helm-eww-bookmark--edit-bookmark bm-obj))
+         (helm-eww-bookmark--do-action-on-list lst #'helm-eww-bookmark--edit-bookmark))
         ('copy
          ;; Copy this bookmark to other section.
          ;; Not implemented.
