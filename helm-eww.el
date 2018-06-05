@@ -269,16 +269,15 @@
                    with lst = nil
                    unless (memq ix delete-indices)
                    collect history)))
-    (setq-local eww-history new-histories)
-    ;; then update helm buffer with new eww-history
-    (helm-force-update)))
+    (setq-local eww-history new-histories)))
 
 (defun helm-eww-history-run-delete-history-persistent ()
   "Delete history without quitting helm."
   (interactive)
   (with-helm-alive-p
     (helm-attrset 'kill-action '(helm-eww-history-delete-history . never-split))
-    (helm-execute-persistent-action 'kill-action)))
+    (helm-execute-persistent-action 'kill-action)
+    (helm-update)))
 
 (defvar helm-eww-history-map
   (let ((map (make-sparse-keymap)))
@@ -291,6 +290,7 @@
 (defvar helm-source-eww-history
   (helm-build-sync-source "eww history"
     :candidates #'helm-eww-history-candidates
+    :volatile t
     :migemo t
     :keymap helm-eww-history-map))
 
@@ -423,7 +423,7 @@ section SECTION-OBJ."
 
 (defvar helm-eww-bookmark-in-section-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-b") #'helm-eww-bookmark--run-go-back-to-section-action)
+    (define-key map (kbd "C-l") #'helm-eww-bookmark--run-go-back-to-section-action)
     (define-key map (kbd "C-c C-e") #'helm-eww-bookmark--persistent-edit)
     (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete)
     (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
@@ -433,6 +433,7 @@ section SECTION-OBJ."
 (defvar helm-eww-bookmark--no-bookmarks-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c C-b") #'helm-eww-bookmark--run-go-back-to-section-action)
+    (define-key map (kbd "C-l") #'helm-eww-bookmark--run-go-back-to-section-action)
     map)
   "Keymap used when there is no bookmarks in a section.")
 
@@ -607,7 +608,7 @@ real value is heww-bookmark-section object."
 
 (defun helm-eww-bookmark--build-in-section-source (section-obj)
   "Build helm source with bookmarks in section SECTION-OBJ."
-  (helm-build-sync-source (format "Bookmarks in %s"
+  (helm-build-sync-source (format "Bookmarks in %s (C-l: Go back to sections)"
                                   (slot-value section-obj :name))
     :candidates (lambda ()
                   (helm-eww-bookmark--get-candidates-in-section section-obj))
