@@ -529,7 +529,7 @@ section SECTION-OBJ."
     (when (and (yes-or-no-p (format "Are you sure to delete section \"%s\"? " name))
                (if (slot-value section-obj :bookmarks)
                    ;; If this section is not empty, ask user once again.
-                   (yes-or-no-p "This section contains bookmarks. Proceed? ")
+                   (yes-or-no-p "Warning: This section is not empty. Proceed? ")
                  t))
       (setq helm-eww-bookmark-bookmarks
             (delete section-obj helm-eww-bookmark-bookmarks))
@@ -708,7 +708,7 @@ value is bookmark title and real value is (`heww-bookmark'
 (defun helm-eww-bookmark--build-no-bookmarks-source (section-obj)
   ;; We cannot get back to the list of sections if we use dummy
   ;; source.
-  (helm-build-sync-source "No bookmarks here."
+  (helm-build-sync-source "No bookmarks here. (C-l: Go back to sections)"
     :keymap 'helm-eww-bookmark--no-bookmarks-map
     :candidates `(,(cons "Go back to sections" (cons 'back
                                                      `(,(cons nil
