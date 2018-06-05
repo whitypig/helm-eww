@@ -343,7 +343,7 @@
   :group 'helm-eww)
 
 (defvar helm-eww-bookmark-bookmarks nil
-  "List of section of type `heww-bookmark-section'. Each section has
+  "List of sections of type `heww-bookmark-section'. Each section has
 its own list of bookmarks of type `heww-bookmark'.")
 
 (defclass heww-bookmark ()
@@ -417,7 +417,9 @@ section SECTION-OBJ."
 
 (defvar helm-eww-bookmark-sections-map
   (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "C-c C-e") #'helm-eww-bookmark-persistent-edit-section)
+    (define-key map (kbd "C-c C-e") #'helm-eww-bookmark--persistent-edit-section)
+    (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete-section)
+    (define-key map (kbd "C-c C-a") #'helm-eww-bookmark--persistent-add-section)
     map)
   "Keymap used in `helm-source-eww-bookmark-sections'.")
 
@@ -473,7 +475,7 @@ section SECTION-OBJ."
     :migemo t)
   "A helm source listing all of bookmarks in `helm-eww-bookmark-bookmarks'.")
 
-(defun helm-eww-bookmark-persistent-edit-section ()
+(defun helm-eww-bookmark--persistent-edit-section ()
   "Edit the name of section."
   (interactive)
   (with-helm-alive-p
@@ -506,6 +508,58 @@ section SECTION-OBJ."
       (progn
         (setf (slot-value section-obj :name) new-name)
         (message "Section name has changed to %s" new-name)))))
+
+(defun helm-eww-bookmark--persistent-delete-section ()
+  "Delete this section."
+  (interactive)
+  (with-helm-alive-p
+    (helm-attrset 'delete-section
+                  '(helm-eww-bookmark--run-persistent-delete-section . never-split))
+    (helm-execute-persistent-action 'delete-section)
+    (helm-update)))
+
+(defun helm-eww-bookmark--run-persistent-delete-section (candidate)
+  ;; CANDIDATE is a section object.
+  (helm-eww-bookmark--delete-section candidate))
+
+(defun helm-eww-bookmark--delete-section (section-obj)
+  "Delete section represented by SECTION-OBJ from
+`helm-eww-bookmark-bookmarks'."
+  (let ((name (slot-value section-obj :name)))
+    (when (and (yes-or-no-p (format "Are you sure to delete section \"%s\"? " name))
+               (if (slot-value section-obj :bookmarks)
+                   ;; If this section is not empty, ask user once again.
+                   (yes-or-no-p "This section contains bookmarks. Proceed? ")
+                 t))
+      (setq helm-eww-bookmark-bookmarks
+            (delete section-obj helm-eww-bookmark-bookmarks))
+      (message "Section %s has been deleted." name))))
+
+(defun helm-eww-bookmark--persistent-add-section ()
+  "Add a new section."
+  (interactive)
+  (with-helm-alive-p
+    (helm-attrset 'add-section
+                  '(helm-eww-bookmark--run-persistent-add-section . never-split))
+    (helm-execute-persistent-action 'add-section)
+    (helm-update)))
+
+(defun helm-eww-bookmark--run-persistent-add-section (_ignore)
+  (helm-eww-bookmark--add-section))
+
+(defun helm-eww-bookmark--add-section ()
+  (let ((section-names (mapcar (lambda (section-obj)
+                                 (slot-value section-obj :name))
+                               helm-eww-bookmark-bookmarks))
+        (name nil))
+    (while (member
+            (setq name
+                  (helm-eww-bookmark--read-from-minibuffer "New section name: " ""))
+            section-names)
+      (message "Section name %s is already in use. Try another one." name))
+    (add-to-list 'helm-eww-bookmark-bookmarks
+                 (heww-bookmark-section :name name)
+                 t)))
 
 (defun helm-eww-bookmark--get-section ()
   "Let user choose section or input a new section name."
