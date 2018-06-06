@@ -269,7 +269,8 @@
                    with lst = nil
                    unless (memq ix delete-indices)
                    collect history)))
-    (setq-local eww-history new-histories)))
+    (with-current-buffer helm-current-buffer
+      (setq-local eww-history new-histories))))
 
 (defun helm-eww-history-run-delete-history-persistent ()
   "Delete history without quitting helm."
@@ -277,7 +278,7 @@
   (with-helm-alive-p
     (helm-attrset 'kill-action '(helm-eww-history-delete-history . never-split))
     (helm-execute-persistent-action 'kill-action)
-    (helm-update)))
+    (helm-force-update)))
 
 (defvar helm-eww-history-map
   (let ((map (make-sparse-keymap)))
