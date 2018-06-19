@@ -336,6 +336,66 @@
         (eww-save-history)
         (eww-restore-history history)))))
 
+;; session management
+
+(defcustom helm-eww-session-session-file
+  (concat (expand-file-name user-emacs-directory) "helm-eww-sessions")
+  "Absolute file name for storing eww session."
+  :group 'helm-eww)
+
+(defun helm-eww-session--collect-sessions ()
+  "Collect eww session list, each element of which is in the form of
+(buffer-name url)."
+  (cl-loop for buffer in (cl-remove-if-not (lambda (buffer)
+                                          (eq 'eww-mode
+                                              (buffer-local-value 'major-mode
+                                                                  buffer)))
+                                        (buffer-list))
+           collect (with-current-buffer buffer
+                     (list
+                      ;; buffer name
+                      (buffer-name)
+                      ;; URL
+                      (eww-current-url)
+                      ;; How about history? Saving history takes very long.
+                      ;; Maybe we should store only title and url in eww-history.
+                   ))
+           into ret
+           finally return (sort ret (lambda (a b)
+                                      ;; Sort by buffer name
+                                      (string< (nth 0 a) (nth 0 b))))))
+
+(defun helm-eww-session-save-sessions ()
+  (interactive)
+  (with-temp-file helm-eww-session-session-file
+    (insert (pp (helm-eww-session--collect-sessions))))
+  (message "Saved sessions in %s" helm-eww-session-session-file))
+
+(defun helm-eww-session--load-sessions ()
+  (when (file-readable-p helm-eww-session-session-file)
+    (read (with-temp-buffer
+            (insert-file-contents-literally helm-eww-session-session-file)
+            (buffer-string)))))
+
+(defun helm-eww-session-restore-sessions ()
+  (interactive)
+  (cl-loop for session in (helm-eww-session--load-sessions)
+           for name = (nth 0 session)
+           for url = (nth 1 session)
+           with lst = nil
+           ;; Open all urls in sessions.
+           do (progn (eww-new url)
+                     ;; Give it a temporary unique name.
+                     (rename-buffer (make-temp-name "helm-eww-"))
+                     (push (cons name (current-buffer)) lst))
+           ;; Then, rename each buffer.
+           finally (cl-loop for cell in lst
+                            for n = (car cell)
+                            for b = (cdr cell)
+                            do (with-current-buffer b
+                                 (rename-buffer n))))
+  (message "Restored eww session."))
+
 ;; bookmark management
 
 (defcustom helm-eww-bookmark-bookmarks-filename "helm-eww-bookmarks"
@@ -783,7 +843,9 @@ arguments.Each element is of the form (heww-bookmark
   (interactive)
   (helm-eww-bookmark--restore-bookmarks-maybe)
   (let ((val nil)
-        (lst nil))
+        (lst nil)
+        (bm-obj nil)
+        (section-obj))
     ;; Value returned from #'helm-eww-bookmark-do-helm is
     ;; (action-sign . candidates) and candidates is a list of the
     ;; form ((bm-obj1 . section-obj1) (bm-obj2 . section-obj2)) or nil
