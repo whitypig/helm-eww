@@ -343,6 +343,30 @@
   "Absolute file name for storing eww session."
   :group 'helm-eww)
 
+(defcustom helm-eww-session-use-auto-save t
+  "When `t', save eww session every
+`helm-eww-session-auto-save-interval' minutes, which default to 30
+minutes."
+  :group 'helm-eww)
+
+(defcustom helm-eww-session-auto-save-interval 30
+  "Interval time in minutes between session auto-savings."
+  :group 'helm-eww)
+
+(defvar helm-eww-session--auto-save-timer
+  (run-with-timer (* 5 60)
+                  (* helm-eww-session-auto-save-interval 60)
+                  #'helm-eww-session--auto-save-func))
+
+(defun helm-eww-session--auto-save-func ()
+  (when helm-eww-session-use-auto-save
+    ;; Save session when Emacs becomes idle for 5 seconds.
+    (run-with-idle-timer 5 nil #'helm-eww-session-save-sessions)))
+
+(defun helm-eww-session-cancel-auto-save ()
+  (interactive)
+  (cancel-timer helm-eww-session--auto-save-timer))
+
 (defun helm-eww-session--collect-sessions ()
   "Collect eww session list, each element of which is in the form of
 (buffer-name url)."
@@ -367,9 +391,14 @@
 
 (defun helm-eww-session-save-sessions ()
   (interactive)
-  (with-temp-file helm-eww-session-session-file
-    (insert (pp (helm-eww-session--collect-sessions))))
-  (message "Saved sessions in %s" helm-eww-session-session-file))
+  (let ((lst (helm-eww-session--collect-sessions)))
+    (cond
+     ((null lst)
+      (message "No eww buffers found."))
+     (t
+      (with-temp-file helm-eww-session-session-file
+        (insert (pp (helm-eww-session--collect-sessions))))
+      (message "Saved eww sessions in %s" helm-eww-session-session-file)))))
 
 (defun helm-eww-session--load-sessions ()
   (when (file-readable-p helm-eww-session-session-file)
