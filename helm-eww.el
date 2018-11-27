@@ -532,6 +532,7 @@ section SECTION-OBJ."
 (defvar helm-eww-bookmark-all-bookmarks-map
   (let ((map (make-sparse-keymap)))
     (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
+    (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete)
     map)
   "Keymap used in `helm-source-eww-all-bookmarks'.")
 
@@ -560,7 +561,11 @@ section SECTION-OBJ."
 (defvar helm-source-eww-all-bookmarks
   (helm-build-sync-source "Helm eww all bookmarks"
     :candidates #'helm-eww-bookmark--get-all-bookmark-candidates
-    :action (lambda (candidate) (cons t candidate))
+    :action
+    (helm-make-actions
+     "Default" (lambda (candidate) (cons t (list candidate)))
+     "Open bookmark in new buffer" #'helm-eww-bookmark-open-bookmark-in-new-buffer-action
+     "Delete bookmark" #'helm-eww-bookmark-delete-bookmark-action)
     :keymap helm-eww-bookmark-all-bookmarks-map
     :migemo t)
   "A helm source listing all of bookmarks in `helm-eww-bookmark-bookmarks'.")
