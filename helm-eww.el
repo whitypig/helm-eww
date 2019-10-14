@@ -674,10 +674,25 @@ section SECTION-OBJ."
 (defun helm-eww-bookmark--read-bookmarks-from-file ()
   "Read in bookmarks from file and set `helm-eww-bookmark-bookmarks'."
   (when (file-readable-p (helm-eww-bookmark--get-bookmark-filepath))
-    (setq helm-eww-bookmark-bookmarks
-          (read (with-temp-buffer
-                  (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
-                  (buffer-string))))))
+    (let ((s (helm-eww-bookmark--convert-old-bookmarks-maybe
+              (with-temp-buffer
+                (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
+                (buffer-string)))))
+      (setq helm-eww-bookmark-bookmarks (read s)))))
+
+(defun helm-eww-bookmark--convert-old-bookmarks-maybe (string)
+  "Convert \"[eieio-class-tag--heww...]\" representation for eieio
+  object into \"#s(heww...)\" format so that `read' can recognize it
+  as an eieio object."
+  (cond
+   ((and (>= emacs-major-version 26)
+         (string-match-p "eieio-class-tag--.*" string))
+    (setq string (replace-regexp-in-string
+                  "\\[" "#s("
+                  (replace-regexp-in-string "\\]" ")" string)))
+    (setq string (replace-regexp-in-string "eieio-class-tag--" "" string)))
+   (t
+    string)))
 
 (defun helm-eww-bookmark--get-all-bookmark-candidates ()
   "Return candidates of all bookmarks in
