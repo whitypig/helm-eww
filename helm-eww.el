@@ -397,7 +397,7 @@ minutes."
       (message "No eww buffers found."))
      (t
       (with-temp-file helm-eww-session-session-file
-        (insert (pp (helm-eww-session--collect-sessions))))
+        (pp (helm-eww-session--collect-sessions) (current-buffer)))
       (message "Saved eww sessions in %s" helm-eww-session-session-file)))))
 
 (defun helm-eww-session--load-sessions ()
