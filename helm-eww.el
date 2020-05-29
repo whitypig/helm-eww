@@ -118,7 +118,7 @@
                                        ", ")))
       (mapc #'kill-buffer buffers))))
 
-(defvar helm-source-eww-buffers
+(defvar helm-eww-buffers--buffers-source
   (helm-build-sync-source "eww buffers"
     :candidates #'helm-eww-buffers-candidates
     :action #'helm-eww-buffers-select-buffer
@@ -163,7 +163,7 @@
 ;;;###autoload
 (defun helm-eww-buffers-list-buffers ()
   (interactive)
-  (helm :sources helm-source-eww-buffers
+  (helm :sources helm-eww-buffers--buffers-source
         :preselect (helm-eww-buffers-get-preselection)))
 
 (defun eww-next-buffer ()
@@ -288,7 +288,7 @@
     (define-key map (kbd "C-c d") #'helm-eww-history-run-delete-history-persistent)
     map))
 
-(defvar helm-source-eww-history
+(defvar helm-eww--history-source
   (helm-build-sync-source "eww history"
     :candidates #'helm-eww-history-candidates
     :volatile t
@@ -326,7 +326,7 @@
         (insert prev-text)
         (and (integerp prev-pos) (goto-char prev-pos)))
       ;; call helm
-      (setq history (cdr (helm :sources 'helm-source-eww-history)))
+      (setq history (cdr (helm :sources 'helm-eww-history-source)))
       ;; restore the original content
       (erase-buffer)
       (insert current-text)
@@ -511,7 +511,7 @@ section SECTION-OBJ."
     (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete-section)
     (define-key map (kbd "C-c C-a") #'helm-eww-bookmark--persistent-add-section)
     map)
-  "Keymap used in `helm-source-eww-bookmark-sections'.")
+  "Keymap used in `helm-eww-bookmark--sections-source'.")
 
 (defvar helm-eww-bookmark-in-section-map
   (let ((map (make-sparse-keymap)))
@@ -534,9 +534,9 @@ section SECTION-OBJ."
     (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
     (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete)
     map)
-  "Keymap used in `helm-source-eww-all-bookmarks'.")
+  "Keymap used in `helm-eww--all-bookmarks-source'.")
 
-(defvar helm-source-eww-bookmark-sections
+(defvar helm-eww-bookmark--sections-source
   (helm-build-sync-source "Helm eww bookmark sections"
     :candidates #'helm-eww-bookmark--build-section-candidates
     :volatile t
@@ -544,7 +544,7 @@ section SECTION-OBJ."
     :migemo t)
   "A helm source for selecting a section.")
 
-(defvar helm-source-eww-bookmark-sections-not-found
+(defvar helm-eww-bookmark--sections-source-not-found
   (helm-build-dummy-source "Create new section"
     :action (helm-make-actions
              "Create new section"
@@ -558,7 +558,7 @@ section SECTION-OBJ."
                (car (last helm-eww-bookmark-bookmarks)))))
   "A helm source for creating a new section.")
 
-(defvar helm-source-eww-all-bookmarks
+(defvar helm-eww--all-bookmarks-source
   (helm-build-sync-source "Helm eww all bookmarks"
     :candidates #'helm-eww-bookmark--get-all-bookmark-candidates
     :action
@@ -658,8 +658,8 @@ section SECTION-OBJ."
 
 (defun helm-eww-bookmark--get-section ()
   "Let user choose section or input a new section name."
-  (helm :sources '(helm-source-eww-bookmark-sections
-                   helm-source-eww-bookmark-sections-not-found)))
+  (helm :sources '(helm-eww-bookmark--sections-source
+                   helm-eww-bookmark--section-not-found-source)))
 
 (defun helm-eww-bookmark--get-bookmark-filepath ()
   "Use `eww-bookmarks-directory' defined in eww.el."
@@ -825,8 +825,8 @@ value is bookmark title and real value is (`heww-bookmark'
                                                               section-obj)))))))
 
 (defun helm-eww-bookmark-do-helm (&optional prev-section)
-  (let ((val (helm :sources '(helm-source-eww-bookmark-sections
-                              helm-source-eww-all-bookmarks)
+  (let ((val (helm :sources '(helm-eww-bookmark--sections-source
+                              helm-eww--all-bookmarks-source)
                    :preselect prev-section)))
     (cond
      ((heww-bookmark-section-p val)
