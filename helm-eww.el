@@ -518,7 +518,7 @@ its own list of bookmarks of type `heww-bookmark'.")
 (defun helm-eww-bookmark-save-bookmarks ()
   "Write `helm-eww-bookmark-bookmarks' to a file."
   (interactive)
-  (helm-eww-bookmark--write-bookmarks-to-file
+  (helm-eww-bookmark-save-bookmarks
    (helm-eww-bookmark--get-bookmark-filepath)))
 
 (defun helm-eww-bookmark--write-bookmarks-to-file (file)
@@ -540,18 +540,18 @@ its own list of bookmarks of type `heww-bookmark'.")
 ;;       (setq helm-eww-bookmark-bookmarks (read s)))))
 
 (defun helm-eww-bookmark-load-bookmarks ()
-  "Read in bookmarks from file and set `helm-eww-bookmark-bookmarks'."
+  "Load saved bookmarks and set `helm-eww-bookmark-bookmarks'."
   (interactive)
-  (when (file-readable-p (helm-eww-bookmark--get-bookmark-filepath))
-    (let* ((lst
-            (read (with-temp-buffer
-                    (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
-                    (buffer-string))))
-           (bookmarks (mapcar #'helm-eww-bookmark--section-from-plist lst)))
+  (cond
+   ((not (file-readable-p (helm-eww-bookmark--get-bookmark-filepath)))
+    (user-error "Cannot access %s" (helm-eww-bookmark--get-bookmark-filepath)))
+   (t
+    (let ((bookmarks (helm-eww-bookmark--read-bookmarks-from-file
+                      (helm-eww-bookmark--get-bookmark-filepath))))
       (if (cl-some (lambda (elt) (not (heww-bookmark-section-p elt))) bookmarks)
           (user-error "Failed to load bookmarks: Invalid format")
         (and (setq helm-eww-bookmark-bookmarks bookmarks)
-             (message "Bookmarks successfully loaded"))))))
+             (message "Bookmarks successfully loaded")))))))
 
 (defun helm-eww-bookmark--read-bookmarks-from-file (file)
   (mapcar (lambda (elt)
@@ -578,7 +578,7 @@ its own list of bookmarks of type `heww-bookmark'.")
      ((and (stringp title) (stringp url))
       (helm-eww-bookmark--heww-add-bookmark section-obj
                                             (heww-bookmark :url url :title title))
-      (helm-eww-bookmark--write-bookmarks-to-file)
+      (helm-eww-bookmark-save-bookmarks)
       (message "%s added in %s." title (slot-value section-obj :name))))))
 
 (defun helm-eww-bookmark--add-bookmark (section url title)
@@ -930,7 +930,7 @@ value is bookmark title and real value is (`heww-bookmark'
     (when (y-or-n-p (format "Delete %s in %s? " title section))
       (setf (slot-value section-obj :bookmarks)
             (delete bm-obj (slot-value section-obj :bookmarks)))
-      (helm-eww-bookmark--write-bookmarks-to-file)
+      (helm-eww-bookmark-save-bookmarks)
       (message "Deleted bookmark %s in %s" title section))))
 
 (defun helm-eww-bookmark--edit-bookmark (bm-obj _section-obj)
@@ -944,13 +944,13 @@ value is bookmark title and real value is (`heww-bookmark'
       (progn
         (setf (slot-value bm-obj :title) new-title)
         (setf (slot-value bm-obj :url) new-url)
-        (helm-eww-bookmark--write-bookmarks-to-file)
+        (helm-eww-bookmark-save-bookmarks)
         (message "Changes have been saved.")))))
 
 (defun helm-eww-bookmark--restore-bookmarks-maybe ()
   "Restore `helm-eww-bookmark-bookmarks' if not set yet."
   (unless helm-eww-bookmark-bookmarks
-    (helm-eww-bookmark--read-bookmarks-from-file)))
+    (helm-eww-bookmark-load-bookmarks)))
 
 (defun helm-eww-bookmark--do-action-on-list (lst func)
   "Call function FUNC passing each element in list LST as
