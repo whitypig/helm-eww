@@ -336,6 +336,7 @@
         (eww-save-history)
         (eww-restore-history history)))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; session management
 
 (defcustom helm-eww-session-session-file
@@ -427,7 +428,6 @@ minutes."
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; bookmark management
-(setq helm-eww-bookmark-bookmarks-filename "tmp.txt")
 (defcustom helm-eww-bookmark-bookmarks-filename "helm-eww-bookmarks"
   "Filename to save `helm-eww-bookmark-bookmarks' into.  Note that the
 actual path is concatenation of `eww-bookmarks-directory' and this
