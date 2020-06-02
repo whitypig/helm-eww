@@ -544,7 +544,7 @@ section SECTION-OBJ."
     :migemo t)
   "A helm source for selecting a section.")
 
-(defvar helm-eww-bookmark--sections-source-not-found
+(defvar helm-eww-bookmark--sections-not-found-source
   (helm-build-dummy-source "Create new section"
     :action (helm-make-actions
              "Create new section"
