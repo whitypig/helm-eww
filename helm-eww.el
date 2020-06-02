@@ -425,10 +425,13 @@ minutes."
                                  (rename-buffer n))))
   (message "Restored eww session."))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; bookmark management
-
+(setq helm-eww-bookmark-bookmarks-filename "tmp.txt")
 (defcustom helm-eww-bookmark-bookmarks-filename "helm-eww-bookmarks"
-  ""
+  "Filename to save `helm-eww-bookmark-bookmarks' into.  Note that the
+actual path is concatenation of `eww-bookmarks-directory' and this
+value."
   :type 'string
   :group 'helm-eww)
 
@@ -441,7 +444,8 @@ its own list of bookmarks of type `heww-bookmark'.")
         :initform nil)
    (title :initarg :title
           :initform nil)
-   (date :initform (format-time-string "%Y%m%d%H%M")))
+   (date :initarg :date
+         :initform (format-time-string "%Y%m%d%H%M")))
   "Represents a bookmark.")
 
 (defmethod helm-eww-bookmark--bookmark-equal ((bm1 heww-bookmark) bm2)
@@ -454,7 +458,8 @@ its own list of bookmarks of type `heww-bookmark'.")
               :initform nil
               :type list
               :documentation "Bookmarks in this section.")
-   (date :initform (format-time-string "%Y%m%d%H%M")))
+   (date :initarg :date
+         :initform (format-time-string "%Y%m%d%H%M")))
   "Represents a section which holds multiple bookmarks of type
 `heww-bookmark'.")
 
@@ -469,6 +474,91 @@ its own list of bookmarks of type `heww-bookmark'.")
    (t
     ;; Append bookmark
     (object-add-to-list section-obj :bookmarks bookmark t))))
+
+(defun helm-eww-bookmark--plist-from-bookmark (bookmark)
+  "Convert BOOKMARK of type heww-bookmark to property list."
+  (let ((ret nil)
+        (keys '(:url :title :date)))
+    (cl-loop for key in keys
+             for val = (slot-value bookmark key)
+             do (setq ret (plist-put ret key val)))
+    ret))
+
+(defun helm-eww-bookmark--bookmark-from-plist (plist)
+  "Take property list PLIST and make and return heww-bookmark object."
+  (apply #'heww-bookmark plist))
+
+(defun helm-eww-bookmark--plist-from-section (section)
+  (cl-loop with ret = nil
+           for key in '(:name :bookmarks :date)
+           for value = (slot-value section key)
+           do (setq ret
+                    (plist-put
+                     ret
+                     key
+                     (if (eq key :bookmarks)
+                         (mapcar #'helm-eww-bookmark--plist-from-bookmark value)
+                       value)))
+           finally return ret))
+
+(defun helm-eww-bookmark--section-from-plist (plist)
+  "Take property list PLIST and make and return
+`heww-bookmark-section' object."
+  (setq plist (plist-put plist
+                         :bookmarks
+                         (mapcar #'helm-eww-bookmark--bookmark-from-plist
+                                 (plist-get plist :bookmarks))))
+  (apply #'heww-bookmark-section plist))
+
+(defun helm-eww-bookmark--printable-bookmarks (bookmarks)
+  "Convert BOOKMARKS, which should be a list of
+`heww-bookmark-section' object, to property list."
+  (mapcar #'helm-eww-bookmark--plist-from-section bookmarks))
+
+(defun helm-eww-bookmark-save-bookmarks ()
+  "Write `helm-eww-bookmark-bookmarks' to a file."
+  (interactive)
+  (helm-eww-bookmark--write-bookmarks-to-file
+   (helm-eww-bookmark--get-bookmark-filepath)))
+
+(defun helm-eww-bookmark--write-bookmarks-to-file (file)
+  (with-temp-file file
+    (insert ";; -*- coding: utf-8-unix; -*-")
+    (insert ";; Auto-generated file. Don't edit this file!!\n")
+    (newline)
+    (pp (helm-eww-bookmark--printable-bookmarks helm-eww-bookmark-bookmarks)
+        (current-buffer)))
+  t)
+
+;; (defun helm-eww-bookmark-load-bookmarks ()
+;;   "Read in bookmarks from file and set `helm-eww-bookmark-bookmarks'."
+;;   (when (file-readable-p (helm-eww-bookmark--get-bookmark-filepath))
+;;     (let ((s (helm-eww-bookmark--convert-old-bookmarks-maybe
+;;               (with-temp-buffer
+;;                 (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
+;;                 (buffer-string)))))
+;;       (setq helm-eww-bookmark-bookmarks (read s)))))
+
+(defun helm-eww-bookmark-load-bookmarks ()
+  "Read in bookmarks from file and set `helm-eww-bookmark-bookmarks'."
+  (interactive)
+  (when (file-readable-p (helm-eww-bookmark--get-bookmark-filepath))
+    (let* ((lst
+            (read (with-temp-buffer
+                    (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
+                    (buffer-string))))
+           (bookmarks (mapcar #'helm-eww-bookmark--section-from-plist lst)))
+      (if (cl-some (lambda (elt) (not (heww-bookmark-section-p elt))) bookmarks)
+          (user-error "Failed to load bookmarks: Invalid format")
+        (and (setq helm-eww-bookmark-bookmarks bookmarks)
+             (message "Bookmarks successfully loaded"))))))
+
+(defun helm-eww-bookmark--read-bookmarks-from-file (file)
+  (mapcar (lambda (elt)
+            (helm-eww-bookmark--section-from-plist elt))
+          (with-temp-buffer
+            (insert-file-contents file)
+            (read (buffer-substring-no-properties (point-min) (point-max))))))
 
 (defun helm-eww-bookmark-bookmark-current-url ()
   "Bookmark current page."
@@ -664,21 +754,6 @@ section SECTION-OBJ."
 (defun helm-eww-bookmark--get-bookmark-filepath ()
   "Use `eww-bookmarks-directory' defined in eww.el."
   (expand-file-name helm-eww-bookmark-bookmarks-filename eww-bookmarks-directory))
-
-(defun helm-eww-bookmark--write-bookmarks-to-file ()
-  "Write `helm-eww-bookmark-bookmarks' to a file."
-  (with-temp-file (helm-eww-bookmark--get-bookmark-filepath)
-    (insert ";; Auto-generated file. Don't edit this file!!\n")
-    (insert (pp helm-eww-bookmark-bookmarks))))
-
-(defun helm-eww-bookmark--read-bookmarks-from-file ()
-  "Read in bookmarks from file and set `helm-eww-bookmark-bookmarks'."
-  (when (file-readable-p (helm-eww-bookmark--get-bookmark-filepath))
-    (let ((s (helm-eww-bookmark--convert-old-bookmarks-maybe
-              (with-temp-buffer
-                (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
-                (buffer-string)))))
-      (setq helm-eww-bookmark-bookmarks (read s)))))
 
 (defun helm-eww-bookmark--convert-old-bookmarks-maybe (string)
   "Convert \"[eieio-class-tag--heww...]\" representation for eieio
