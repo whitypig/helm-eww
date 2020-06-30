@@ -118,7 +118,7 @@
                                        ", ")))
       (mapc #'kill-buffer buffers))))
 
-(defvar helm-source-eww-buffers
+(defvar helm-eww-buffers--buffers-source
   (helm-build-sync-source "eww buffers"
     :candidates #'helm-eww-buffers-candidates
     :action #'helm-eww-buffers-select-buffer
@@ -163,7 +163,7 @@
 ;;;###autoload
 (defun helm-eww-buffers-list-buffers ()
   (interactive)
-  (helm :sources helm-source-eww-buffers
+  (helm :sources helm-eww-buffers--buffers-source
         :preselect (helm-eww-buffers-get-preselection)))
 
 (defun eww-next-buffer ()
@@ -288,7 +288,7 @@
     (define-key map (kbd "C-c d") #'helm-eww-history-run-delete-history-persistent)
     map))
 
-(defvar helm-source-eww-history
+(defvar helm-eww--history-source
   (helm-build-sync-source "eww history"
     :candidates #'helm-eww-history-candidates
     :volatile t
@@ -326,7 +326,7 @@
         (insert prev-text)
         (and (integerp prev-pos) (goto-char prev-pos)))
       ;; call helm
-      (setq history (cdr (helm :sources 'helm-source-eww-history)))
+      (setq history (cdr (helm :sources 'helm-eww--history-source)))
       ;; restore the original content
       (erase-buffer)
       (insert current-text)
@@ -336,6 +336,7 @@
         (eww-save-history)
         (eww-restore-history history)))))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; session management
 
 (defcustom helm-eww-session-session-file
@@ -425,10 +426,12 @@ minutes."
                                  (rename-buffer n))))
   (message "Restored eww session."))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; bookmark management
-
 (defcustom helm-eww-bookmark-bookmarks-filename "helm-eww-bookmarks"
-  ""
+  "Filename to save `helm-eww-bookmark-bookmarks' into.  Note that the
+actual path is concatenation of `eww-bookmarks-directory' and this
+value."
   :type 'string
   :group 'helm-eww)
 
@@ -441,7 +444,8 @@ its own list of bookmarks of type `heww-bookmark'.")
         :initform nil)
    (title :initarg :title
           :initform nil)
-   (date :initform (format-time-string "%Y%m%d%H%M")))
+   (date :initarg :date
+         :initform (format-time-string "%Y%m%d%H%M")))
   "Represents a bookmark.")
 
 (defmethod helm-eww-bookmark--bookmark-equal ((bm1 heww-bookmark) bm2)
@@ -454,7 +458,8 @@ its own list of bookmarks of type `heww-bookmark'.")
               :initform nil
               :type list
               :documentation "Bookmarks in this section.")
-   (date :initform (format-time-string "%Y%m%d%H%M")))
+   (date :initarg :date
+         :initform (format-time-string "%Y%m%d%H%M")))
   "Represents a section which holds multiple bookmarks of type
 `heww-bookmark'.")
 
@@ -469,6 +474,99 @@ its own list of bookmarks of type `heww-bookmark'.")
    (t
     ;; Append bookmark
     (object-add-to-list section-obj :bookmarks bookmark t))))
+
+(defun helm-eww-bookmark--plist-from-bookmark (bookmark)
+  "Convert BOOKMARK of type heww-bookmark to property list."
+  (let ((ret nil)
+        (keys '(:url :title :date)))
+    (cl-loop for key in keys
+             for val = (slot-value bookmark key)
+             do (setq ret (plist-put ret key val)))
+    ret))
+
+(defun helm-eww-bookmark--bookmark-from-plist (plist)
+  "Take property list PLIST and make and return heww-bookmark object."
+  (apply #'heww-bookmark plist))
+
+(defun helm-eww-bookmark--plist-from-section (section)
+  (cl-loop with ret = nil
+           for key in '(:name :bookmarks :date)
+           for value = (slot-value section key)
+           do (setq ret
+                    (plist-put
+                     ret
+                     key
+                     (if (eq key :bookmarks)
+                         (mapcar #'helm-eww-bookmark--plist-from-bookmark value)
+                       value)))
+           finally return ret))
+
+(defun helm-eww-bookmark--section-from-plist (plist)
+  "Take property list PLIST and make and return
+`heww-bookmark-section' object."
+  (setq plist (plist-put plist
+                         :bookmarks
+                         (mapcar #'helm-eww-bookmark--bookmark-from-plist
+                                 (plist-get plist :bookmarks))))
+  (apply #'heww-bookmark-section plist))
+
+(defun helm-eww-bookmark--printable-bookmarks (bookmarks)
+  "Convert BOOKMARKS, which should be a list of
+`heww-bookmark-section' object, to property list."
+  (mapcar #'helm-eww-bookmark--plist-from-section bookmarks))
+
+(defun helm-eww-bookmark-save-bookmarks ()
+  "Write `helm-eww-bookmark-bookmarks' to a file."
+  (interactive)
+  (helm-eww-bookmark--write-bookmarks-to-file
+   (helm-eww-bookmark--get-bookmark-filepath)))
+
+(defun helm-eww-bookmark--write-bookmarks-to-file (file)
+  (with-temp-file file
+    (insert ";; -*- coding: utf-8-unix; -*-")
+    (insert ";; Auto-generated file. Don't edit this file!!\n")
+    (newline)
+    (pp (helm-eww-bookmark--printable-bookmarks helm-eww-bookmark-bookmarks)
+        (current-buffer)))
+  t)
+
+;; (defun helm-eww-bookmark-load-bookmarks ()
+;;   "Read in bookmarks from file and set `helm-eww-bookmark-bookmarks'."
+;;   (when (file-readable-p (helm-eww-bookmark--get-bookmark-filepath))
+;;     (let ((s (helm-eww-bookmark--convert-old-bookmarks-maybe
+;;               (with-temp-buffer
+;;                 (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
+;;                 (buffer-string)))))
+;;       (setq helm-eww-bookmark-bookmarks (read s)))))
+
+(defun helm-eww-bookmark-load-bookmarks ()
+  "Load saved bookmarks and set `helm-eww-bookmark-bookmarks'."
+  (interactive)
+  (cond
+   ((not (file-readable-p (helm-eww-bookmark--get-bookmark-filepath)))
+    (unless
+        (and
+         (y-or-n-p (format "File %s does not exist. Create a new one? "
+                           (helm-eww-bookmark--get-bookmark-filepath)))
+         (zerop (call-process-shell-command
+                 (format "touch %s"
+                         (helm-eww-bookmark--get-bookmark-filepath)))))
+      (user-error "Cannot access %s" (helm-eww-bookmark--get-bookmark-filepath))))
+   (t
+    (let ((bookmarks (helm-eww-bookmark--read-bookmarks-from-file
+                      (helm-eww-bookmark--get-bookmark-filepath))))
+      (if (cl-some (lambda (elt) (not (heww-bookmark-section-p elt))) bookmarks)
+          (user-error "Failed to load bookmarks: Invalid format")
+        (and (setq helm-eww-bookmark-bookmarks bookmarks)
+             (message "Bookmarks successfully loaded")))))))
+
+(defun helm-eww-bookmark--read-bookmarks-from-file (file)
+  (mapcar (lambda (elt)
+            (helm-eww-bookmark--section-from-plist elt))
+          (with-temp-buffer
+            (insert-file-contents file)
+            (ignore-errors
+              (read (buffer-substring-no-properties (point-min) (point-max)))))))
 
 (defun helm-eww-bookmark-bookmark-current-url ()
   "Bookmark current page."
@@ -488,7 +586,7 @@ its own list of bookmarks of type `heww-bookmark'.")
      ((and (stringp title) (stringp url))
       (helm-eww-bookmark--heww-add-bookmark section-obj
                                             (heww-bookmark :url url :title title))
-      (helm-eww-bookmark--write-bookmarks-to-file)
+      (helm-eww-bookmark-save-bookmarks)
       (message "%s added in %s." title (slot-value section-obj :name))))))
 
 (defun helm-eww-bookmark--add-bookmark (section url title)
@@ -511,7 +609,7 @@ section SECTION-OBJ."
     (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete-section)
     (define-key map (kbd "C-c C-a") #'helm-eww-bookmark--persistent-add-section)
     map)
-  "Keymap used in `helm-source-eww-bookmark-sections'.")
+  "Keymap used in `helm-eww-bookmark--sections-source'.")
 
 (defvar helm-eww-bookmark-in-section-map
   (let ((map (make-sparse-keymap)))
@@ -534,9 +632,9 @@ section SECTION-OBJ."
     (define-key map (kbd "C-c C-f") #'helm-eww-bookmark--run-open-in-new-buffer)
     (define-key map (kbd "C-c C-d") #'helm-eww-bookmark--persistent-delete)
     map)
-  "Keymap used in `helm-source-eww-all-bookmarks'.")
+  "Keymap used in `helm-eww--all-bookmarks-source'.")
 
-(defvar helm-source-eww-bookmark-sections
+(defvar helm-eww-bookmark--sections-source
   (helm-build-sync-source "Helm eww bookmark sections"
     :candidates #'helm-eww-bookmark--build-section-candidates
     :volatile t
@@ -544,7 +642,7 @@ section SECTION-OBJ."
     :migemo t)
   "A helm source for selecting a section.")
 
-(defvar helm-source-eww-bookmark-sections-not-found
+(defvar helm-eww-bookmark--sections-not-found-source
   (helm-build-dummy-source "Create new section"
     :action (helm-make-actions
              "Create new section"
@@ -558,7 +656,7 @@ section SECTION-OBJ."
                (car (last helm-eww-bookmark-bookmarks)))))
   "A helm source for creating a new section.")
 
-(defvar helm-source-eww-all-bookmarks
+(defvar helm-eww--all-bookmarks-source
   (helm-build-sync-source "Helm eww all bookmarks"
     :candidates #'helm-eww-bookmark--get-all-bookmark-candidates
     :action
@@ -658,27 +756,12 @@ section SECTION-OBJ."
 
 (defun helm-eww-bookmark--get-section ()
   "Let user choose section or input a new section name."
-  (helm :sources '(helm-source-eww-bookmark-sections
-                   helm-source-eww-bookmark-sections-not-found)))
+  (helm :sources '(helm-eww-bookmark--sections-source
+                   helm-eww-bookmark--sections-not-found-source)))
 
 (defun helm-eww-bookmark--get-bookmark-filepath ()
   "Use `eww-bookmarks-directory' defined in eww.el."
   (expand-file-name helm-eww-bookmark-bookmarks-filename eww-bookmarks-directory))
-
-(defun helm-eww-bookmark--write-bookmarks-to-file ()
-  "Write `helm-eww-bookmark-bookmarks' to a file."
-  (with-temp-file (helm-eww-bookmark--get-bookmark-filepath)
-    (insert ";; Auto-generated file. Don't edit this file!!\n")
-    (insert (pp helm-eww-bookmark-bookmarks))))
-
-(defun helm-eww-bookmark--read-bookmarks-from-file ()
-  "Read in bookmarks from file and set `helm-eww-bookmark-bookmarks'."
-  (when (file-readable-p (helm-eww-bookmark--get-bookmark-filepath))
-    (let ((s (helm-eww-bookmark--convert-old-bookmarks-maybe
-              (with-temp-buffer
-                (insert-file-contents (helm-eww-bookmark--get-bookmark-filepath))
-                (buffer-string)))))
-      (setq helm-eww-bookmark-bookmarks (read s)))))
 
 (defun helm-eww-bookmark--convert-old-bookmarks-maybe (string)
   "Convert \"[eieio-class-tag--heww...]\" representation for eieio
@@ -825,8 +908,8 @@ value is bookmark title and real value is (`heww-bookmark'
                                                               section-obj)))))))
 
 (defun helm-eww-bookmark-do-helm (&optional prev-section)
-  (let ((val (helm :sources '(helm-source-eww-bookmark-sections
-                              helm-source-eww-all-bookmarks)
+  (let ((val (helm :sources '(helm-eww-bookmark--sections-source
+                              helm-eww--all-bookmarks-source)
                    :preselect prev-section)))
     (cond
      ((heww-bookmark-section-p val)
@@ -855,7 +938,7 @@ value is bookmark title and real value is (`heww-bookmark'
     (when (y-or-n-p (format "Delete %s in %s? " title section))
       (setf (slot-value section-obj :bookmarks)
             (delete bm-obj (slot-value section-obj :bookmarks)))
-      (helm-eww-bookmark--write-bookmarks-to-file)
+      (helm-eww-bookmark-save-bookmarks)
       (message "Deleted bookmark %s in %s" title section))))
 
 (defun helm-eww-bookmark--edit-bookmark (bm-obj _section-obj)
@@ -869,13 +952,13 @@ value is bookmark title and real value is (`heww-bookmark'
       (progn
         (setf (slot-value bm-obj :title) new-title)
         (setf (slot-value bm-obj :url) new-url)
-        (helm-eww-bookmark--write-bookmarks-to-file)
+        (helm-eww-bookmark-save-bookmarks)
         (message "Changes have been saved.")))))
 
 (defun helm-eww-bookmark--restore-bookmarks-maybe ()
   "Restore `helm-eww-bookmark-bookmarks' if not set yet."
   (unless helm-eww-bookmark-bookmarks
-    (helm-eww-bookmark--read-bookmarks-from-file)))
+    (helm-eww-bookmark-load-bookmarks)))
 
 (defun helm-eww-bookmark--do-action-on-list (lst func)
   "Call function FUNC passing each element in list LST as
