@@ -326,7 +326,7 @@
         (insert prev-text)
         (and (integerp prev-pos) (goto-char prev-pos)))
       ;; call helm
-      (setq history (cdr (helm :sources 'helm-eww-history-source)))
+      (setq history (cdr (helm :sources 'helm-eww--history-source)))
       ;; restore the original content
       (erase-buffer)
       (insert current-text)
@@ -518,7 +518,7 @@ its own list of bookmarks of type `heww-bookmark'.")
 (defun helm-eww-bookmark-save-bookmarks ()
   "Write `helm-eww-bookmark-bookmarks' to a file."
   (interactive)
-  (helm-eww-bookmark-save-bookmarks
+  (helm-eww-bookmark--write-bookmarks-to-file
    (helm-eww-bookmark--get-bookmark-filepath)))
 
 (defun helm-eww-bookmark--write-bookmarks-to-file (file)
@@ -544,7 +544,14 @@ its own list of bookmarks of type `heww-bookmark'.")
   (interactive)
   (cond
    ((not (file-readable-p (helm-eww-bookmark--get-bookmark-filepath)))
-    (user-error "Cannot access %s" (helm-eww-bookmark--get-bookmark-filepath)))
+    (unless
+        (and
+         (y-or-n-p (format "File %s does not exist. Create a new one? "
+                           (helm-eww-bookmark--get-bookmark-filepath)))
+         (zerop (call-process-shell-command
+                 (format "touch %s"
+                         (helm-eww-bookmark--get-bookmark-filepath)))))
+      (user-error "Cannot access %s" (helm-eww-bookmark--get-bookmark-filepath))))
    (t
     (let ((bookmarks (helm-eww-bookmark--read-bookmarks-from-file
                       (helm-eww-bookmark--get-bookmark-filepath))))
@@ -558,7 +565,8 @@ its own list of bookmarks of type `heww-bookmark'.")
             (helm-eww-bookmark--section-from-plist elt))
           (with-temp-buffer
             (insert-file-contents file)
-            (read (buffer-substring-no-properties (point-min) (point-max))))))
+            (ignore-errors
+              (read (buffer-substring-no-properties (point-min) (point-max)))))))
 
 (defun helm-eww-bookmark-bookmark-current-url ()
   "Bookmark current page."
@@ -749,7 +757,7 @@ section SECTION-OBJ."
 (defun helm-eww-bookmark--get-section ()
   "Let user choose section or input a new section name."
   (helm :sources '(helm-eww-bookmark--sections-source
-                   helm-eww-bookmark--section-not-found-source)))
+                   helm-eww-bookmark--sections-not-found-source)))
 
 (defun helm-eww-bookmark--get-bookmark-filepath ()
   "Use `eww-bookmarks-directory' defined in eww.el."
